@@ -1,0 +1,26 @@
+{
+  "name": "swagger-to-postman",
+  "version": "1.0.0",
+  "description": "Generate Postman collections and API tests from Swagger/OpenAPI specs",
+  "main": "dist/index.js",
+  "bin": {
+    "swagger-to-postman": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "generate": "node dist/index.js",
+    "test": "npm run build && node test/smoke.js"
+  },
+  "dependencies": {
+    "@apidevtools/swagger-parser": "^10.1.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.10.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.2"
+  }
+}

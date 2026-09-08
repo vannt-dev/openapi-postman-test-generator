@@ -1,0 +1,73 @@
+openapi: 3.0.3
+info:
+  title: Demo Pet API
+  version: 1.0.0
+servers:
+  - url: https://api.example.com/v1
+security:
+  - bearerAuth: []
+paths:
+  /pets:
+    get:
+      tags: [Pets]
+      summary: List pets
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, default: 10 }
+      responses:
+        '200':
+          description: Pet list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Pet' }
+    post:
+      tags: [Pets]
+      summary: Create pet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewPet' }
+      responses:
+        '201':
+          description: Created pet
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pet' }
+  /pets/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, example: 1 }
+    get:
+      tags: [Pets]
+      summary: Get pet
+      responses:
+        '200':
+          description: A pet
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pet' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    NewPet:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, example: Miso }
+        status: { type: string, enum: [available, adopted] }
+    Pet:
+      allOf:
+        - { $ref: '#/components/schemas/NewPet' }
+        - type: object
+          required: [id]
+          properties:
+            id: { type: integer }
