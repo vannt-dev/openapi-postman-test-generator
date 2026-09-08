@@ -1,0 +1,50 @@
+name: Bug report
+description: Report reproducible incorrect behavior.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include API keys, access tokens, production specifications, or customer data.
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      placeholder: 0.3.0
+    validations:
+      required: true
+  - type: dropdown
+    id: specification
+    attributes:
+      label: Specification format
+      options:
+        - OpenAPI 3.1
+        - OpenAPI 3.0
+        - Swagger 2.0
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide a sanitized specification excerpt and the exact command used.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the operating system, Node.js version, and AI provider when applicable.
