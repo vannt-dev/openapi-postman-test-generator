@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spec to Suite — openapi-postman-test-generator</title>
+<meta name="description" content="A CLI that turns OpenAPI/Swagger specs into runnable Postman test suites, with optional AI-assisted planning.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%AA%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    color-scheme: light dark;
+    --paper:#EEF3F7; --surface:#FFFFFF; --ink:#0B2036; --ink-soft:#3C5871;
+    --line:#C9D8E2; --accent:#A65A21; --accent-ink:#FFF8F0;
+    --pass:#2E8B57; --fail:#B23B32; --warn:#9C7A2A;
+    --console-bg:#0D1B27; --console-line:#223850; --console-ink:#E7EEF3; --console-soft:#7FA0B8;
+    --console-key:#E1935A; --console-string:#8FD0E0;
+    --console-pass:#5CC584; --console-fail:#E2685D; --console-warn:#E0B25A;
+    --console-get:#6FB1E0; --console-post:#E1935A;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#0A1622; --surface:#10202E; --ink:#E7EEF3; --ink-soft:#93AEC2;
+      --line:#1E3446; --accent:#E1935A; --accent-ink:#14100A;
+      --pass:#5CC584; --fail:#E2685D; --warn:#E0B25A;
+    }
+  }
+
+  *{box-sizing:border-box;}
+  html{ background:var(--paper); }
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    line-height:1.6; font-size:16px;
+  }
+  img{ max-width:100%; }
+  a{color:var(--accent);}
+  a:focus-visible, button:focus-visible{
+    outline:2px solid var(--accent); outline-offset:2px; border-radius:2px;
+  }
+  h1,h2,h3{ font-family:"Space Mono", ui-monospace, monospace; font-weight:700; text-wrap:balance; line-height:1.15; margin:0; }
+  code, .mono{ font-family:"IBM Plex Mono", ui-monospace, monospace; }
+  .eyebrow{
+    font-family:"IBM Plex Mono", monospace; font-size:.72rem; letter-spacing:.09em;
+    text-transform:uppercase; color:var(--ink-soft);
+  }
+  p{ margin:0; }
+  .prose{ max-width:62ch; color:var(--ink-soft); }
+  .wrap{ max-width:1040px; margin:0 auto; padding:0 clamp(1.1rem,4vw,2.2rem); }
+  section{ padding:clamp(2.6rem,6vw,4.4rem) 0; border-top:1px solid var(--line); }
+  section:first-of-type{ border-top:none; }
+
+  /* ---- header / title block ---- */
+  .titlebar{
+    position:sticky; top:0; z-index:20; background:var(--paper);
+    border-bottom:1px solid var(--line);
+  }
+  .titlebar-inner{
+    display:flex; align-items:center; justify-content:space-between; gap:1rem;
+    padding:.85rem clamp(1.1rem,4vw,2.2rem);
+  }
+  .mark{
+    font-family:"Space Mono", monospace; font-weight:700; font-size:1rem;
+    letter-spacing:.02em; display:flex; align-items:center; gap:.4em;
+  }
+  .mark .arrow{ color:var(--accent); }
+  nav.tabs{ display:flex; gap:1.4rem; }
+  nav.tabs a{ color:var(--ink-soft); text-decoration:none; font-size:.86rem; }
+  nav.tabs a:hover{ color:var(--accent); }
+  .meta-tags{ display:flex; gap:.9rem; font-family:"IBM Plex Mono",monospace; font-size:.72rem; color:var(--ink-soft); }
+  @media (max-width:720px){ nav.tabs, .meta-tags{ display:none; } }
+
+  /* ---- hero ---- */
+  .hero{ position:relative; padding-top:clamp(2.8rem,7vw,4.8rem); }
+  .hero-grid{ display:grid; grid-template-columns:1.15fr .85fr; gap:clamp(1.6rem,4vw,2.8rem); align-items:start; }
+  @media (max-width:860px){ .hero-grid{ grid-template-columns:1fr; } }
+  .hero h1{ font-size:clamp(2.05rem,1.35rem + 2.6vw,3.35rem); margin:.6rem 0 1rem; }
+  .hero .prose{ font-size:1.05rem; max-width:52ch; }
+  .trustline{ margin-top:1rem; font-size:.92rem; color:var(--ink-soft); border-left:2px solid var(--accent); padding-left:.75rem; }
+  .cta-row{ display:flex; flex-wrap:wrap; gap:.75rem; margin-top:1.6rem; }
+  .btn{
+    font-family:"IBM Plex Mono", monospace; font-size:.85rem; padding:.68rem 1.05rem;
+    border-radius:3px; text-decoration:none; display:inline-flex; align-items:center; gap:.5em;
+    border:1px solid var(--line); color:var(--ink); background:var(--surface); cursor:pointer;
+  }
+  .btn.primary{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
+  .btn:hover{ border-color:var(--accent); }
+
+  /* ---- console panel (fixed dark, both themes) ---- */
+  .console{
+    background:var(--console-bg); color:var(--console-ink);
+    border:1px solid var(--console-line); border-radius:6px; overflow:hidden;
+  }
+  .console-head{
+    display:flex; align-items:center; gap:.5rem; padding:.55rem .85rem;
+    border-bottom:1px solid var(--console-line); font-family:"IBM Plex Mono",monospace;
+    font-size:.72rem; color:var(--console-soft); letter-spacing:.03em;
+  }
+  .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .console-body{ padding:.95rem 1rem 1.1rem; font-family:"IBM Plex Mono",monospace; font-size:.83rem; overflow-x:auto; }
+  .console-body pre{ margin:0; white-space:pre; }
+  .console .prompt{ color:var(--console-soft); }
+  .console .cmd{ color:var(--console-ink); }
+  .console .flag{ color:var(--console-key); }
+  .console .out{ color:var(--console-soft); }
+  .console .ok{ color:var(--console-pass); }
+  .k{ color:var(--console-key); }
+  .s{ color:var(--console-string); }
+  .cm{ color:var(--console-soft); }
+
+  /* ---- pipeline ---- */
+  .section-head{ display:flex; align-items:baseline; gap:.8rem; margin-bottom:1.6rem; }
+  .section-head .num{ font-family:"IBM Plex Mono",monospace; color:var(--accent); font-size:.85rem; }
+  .section-head h2{ font-size:clamp(1.35rem,1.1rem + .8vw,1.85rem); }
+  .pipeline-grid{ display:grid; grid-template-columns:1fr auto 1fr auto 1fr; gap:.9rem; align-items:stretch; }
+  @media (max-width:900px){ .pipeline-grid{ grid-template-columns:1fr; } .pipe-arrow{ transform:rotate(90deg); margin:.2rem auto; } }
+  .pipe-arrow{ align-self:center; color:var(--accent); font-family:"Space Mono",monospace; font-size:1.3rem; }
+  .stage{ background:var(--surface); border:1px solid var(--line); border-radius:6px; display:flex; flex-direction:column; min-width:0; }
+  .stage-label{
+    font-family:"IBM Plex Mono",monospace; font-size:.7rem; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--ink-soft); padding:.7rem .9rem .5rem;
+  }
+  .stage-body{ padding:0 .9rem .95rem; }
+  .stage.process .stage-body{ padding:.2rem 1rem .95rem; }
+  .steps{ list-style:none; margin:0; padding:0; counter-reset:step; }
+  .steps li{ counter-increment:step; display:flex; gap:.6rem; padding:.42rem 0; font-size:.86rem; border-top:1px dashed var(--line); }
+  .steps li:first-child{ border-top:none; }
+  .steps li::before{ content:counter(step); font-family:"IBM Plex Mono",monospace; color:var(--accent); font-size:.76rem; flex:none; width:1.1em; }
+
+  /* ---- collection tree / demo ---- */
+  .demo-grid{ display:grid; grid-template-columns:1fr 1fr; gap:clamp(1.4rem,3vw,2.2rem); align-items:start; }
+  @media (max-width:860px){ .demo-grid{ grid-template-columns:1fr; } }
+  .tree{ font-family:"IBM Plex Mono",monospace; font-size:.85rem; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:1rem 1.1rem; }
+  .tree .folder{ color:var(--ink-soft); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; margin-bottom:.55rem; }
+  .tree .row{ display:flex; align-items:center; gap:.55rem; padding:.3rem 0; border-top:1px dashed var(--line); }
+  .tree .row:first-of-type{ border-top:none; }
+  .method{ font-size:.66rem; font-weight:600; padding:.12em .5em; border-radius:3px; letter-spacing:.03em; flex:none; }
+  .method.get{ background:rgba(111,177,224,.22); color:var(--console-get); }
+  .method.post{ background:rgba(166,90,33,.18); color:var(--accent); }
+  .neg{ color:var(--warn); font-size:.72rem; }
+  .reports{ display:flex; flex-direction:column; gap:.6rem; margin-top:1rem; }
+  .report-chip{ display:flex; gap:.7rem; align-items:baseline; padding:.55rem .8rem; background:var(--surface); border:1px solid var(--line); border-radius:5px; }
+  .report-chip .file{ font-family:"IBM Plex Mono",monospace; font-size:.82rem; color:var(--accent); flex:none; }
+  .report-chip .desc{ font-size:.83rem; color:var(--ink-soft); }
+
+  /* ---- spec sheet table ---- */
+  .spec-table{ border-top:1px solid var(--line); margin:0; }
+  .spec-row{ display:grid; grid-template-columns:220px 1fr; gap:1rem; padding:.85rem 0; border-bottom:1px solid var(--line); }
+  @media (max-width:640px){ .spec-row{ grid-template-columns:1fr; gap:.25rem; } }
+  .spec-row dt{ font-family:"IBM Plex Mono",monospace; font-size:.78rem; color:var(--ink-soft); letter-spacing:.03em; }
+  .spec-row dd{ margin:0; font-size:.93rem; }
+
+  /* ---- AI strip ---- */
+  .ai-note{ font-size:.93rem; color:var(--ink-soft); max-width:64ch; }
+  .badges{ display:flex; flex-wrap:wrap; gap:.55rem; margin-top:1.1rem; }
+  .badge{ font-family:"IBM Plex Mono",monospace; font-size:.78rem; padding:.42rem .8rem; border:1px solid var(--line); border-radius:20px; color:var(--ink-soft); }
+
+  /* ---- quickstart ---- */
+  .qs-grid{ display:flex; flex-direction:column; gap:1.4rem; }
+  .qs-row{ display:grid; grid-template-columns:2.2rem 1fr; gap:1rem; }
+  .qs-num{ font-family:"Space Mono",monospace; font-weight:700; color:var(--accent); font-size:1.1rem; }
+  .qs-row h3{ font-family:"IBM Plex Sans",sans-serif; font-weight:600; font-size:1.02rem; margin-bottom:.35rem; }
+
+  footer{ border-top:1px solid var(--line); padding:2.4rem 0 3rem; }
+  .foot-grid{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:1.4rem; align-items:flex-end; }
+  .foot-links{ display:flex; gap:1.4rem; font-size:.86rem; }
+  .foot-links a{ color:var(--ink-soft); text-decoration:none; }
+  .foot-links a:hover{ color:var(--accent); }
+  .foot-tags{ font-family:"IBM Plex Mono",monospace; font-size:.72rem; color:var(--ink-soft); display:flex; gap:.9rem; }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="titlebar-inner">
+    <div class="mark"><span>spec</span><span class="arrow">⟶</span><span>tests</span></div>
+    <nav class="tabs">
+      <a href="#how-it-works">How it works</a>
+      <a href="#demo">Demo</a>
+      <a href="#features">Capabilities</a>
+      <a href="#quickstart">Quick start</a>
+    </nav>
+    <div class="meta-tags"><span>REV v0.3.1</span><span>NODE ≥20</span><span>MIT</span></div>
+  </div>
+</div>
+
+<div class="wrap">
+  <section class="hero" id="top">
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow">openapi-postman-test-generator · cli for node.js</p>
+        <h1>Turn an OpenAPI spec into a running Postman suite.</h1>
+        <p class="prose">Point it at a Swagger 2.0 or OpenAPI 3.x document and it generates a full Postman collection — auth, example bodies, JSON Schema assertions, and negative tests — ready to run with Newman.</p>
+        <p class="trustline">The generator is deterministic. An optional AI planner may propose operation order and variable mappings — it never writes the Postman scripts.</p>
+        <div class="cta-row">
+          <button class="btn primary" id="copyInstall" type="button">
+            <span class="mono">npm install -g openapi-postman-test-generator</span>
+          </button>
+          <a class="btn" href="https://github.com/vannt-dev/openapi-postman-test-generator" target="_blank" rel="noopener">View source →</a>
+        </div>
+      </div>
+      <div class="console" aria-label="terminal example">
+        <div class="console-head"><span class="dot" style="background:var(--console-fail)"></span><span class="dot" style="background:var(--console-warn)"></span><span class="dot" style="background:var(--console-pass)"></span><span style="margin-left:.4rem">bash</span></div>
+        <div class="console-body"><pre><span class="prompt">$</span> <span class="cmd">openapi-postman generate</span> <span class="flag">--spec</span> ./petstore.openapi.yaml <span class="flag">--negative</span>
+
+<span class="out">Generated 8 requests</span>
+<span class="out">Collection:   ./generated/api.collection.json</span>
+<span class="out">Environment:  ./generated/api.environment.json</span>
+
+<span class="prompt">$</span> <span class="cmd">openapi-postman run</span> <span class="flag">--collection</span> ./generated/api.collection.json
+
+<span class="ok">✓</span> report.html · junit.xml · newman.json</pre></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how-it-works">
+    <div class="section-head"><span class="num">01</span><h2>Input, process, output.</h2></div>
+    <p class="prose" style="margin-bottom:1.6rem;">One route from the fixture used on this page — <code class="mono">POST /pets</code> in <code class="mono">fixtures/petstore.openapi.yaml</code> — traced from spec to generated request.</p>
+    <div class="pipeline-grid">
+      <div class="stage">
+        <div class="stage-label">Input · openapi.yaml</div>
+        <div class="stage-body console" style="border:none; border-radius:0;">
+          <div class="console-body"><pre>  <span class="k">/pets:</span>
+    <span class="k">post:</span>
+      <span class="k">summary:</span> <span class="s">Create pet</span>
+      <span class="k">requestBody:</span>
+        <span class="k">content:</span>
+          <span class="k">application/json:</span>
+            <span class="k">schema:</span> { $ref: <span class="s">'#/NewPet'</span> }
+      <span class="k">responses:</span>
+        <span class="k">'201':</span>
+          <span class="k">content:</span>
+            <span class="k">application/json:</span>
+              <span class="k">schema:</span> { $ref: <span class="s">'#/Pet'</span> }
+
+  <span class="k">NewPet:</span>
+    <span class="k">required:</span> [name]
+    <span class="k">properties:</span>
+      <span class="k">name:</span> { <span class="k">example:</span> <span class="s">Miso</span> }
+      <span class="k">status:</span> { <span class="k">enum:</span> [available, adopted] }</pre></div>
+        </div>
+      </div>
+      <div class="pipe-arrow">⟶</div>
+      <div class="stage process">
+        <div class="stage-label">Process · generator.ts</div>
+        <div class="stage-body">
+          <ol class="steps">
+            <li>Resolve <code class="mono">$ref</code> chains, merge <code class="mono">allOf</code></li>
+            <li>Merge path + operation parameters</li>
+            <li>Pick a security scheme, build auth block</li>
+            <li>Build an example body from the schema</li>
+            <li>Emit <code class="mono">pm.test()</code> assertions</li>
+            <li>Add negative variants (missing field, invalid enum, unauthorized)</li>
+          </ol>
+        </div>
+      </div>
+      <div class="pipe-arrow">⟶</div>
+      <div class="stage">
+        <div class="stage-label">Output · Postman item</div>
+        <div class="stage-body console" style="border:none; border-radius:0;">
+          <div class="console-body"><pre><span class="k">"method"</span>: <span class="s">"POST"</span>,
+<span class="k">"url"</span>: <span class="s">"{{baseUrl}}/pets"</span>,
+<span class="k">"auth"</span>: { <span class="k">"type"</span>: <span class="s">"bearer"</span> },
+<span class="k">"body"</span>: {
+  <span class="k">"raw"</span>: <span class="s">"{ \"name\": \"Miso\",
+    \"status\": \"available\" }"</span>
+}
+
+<span class="cm">// event[0].script.exec</span>
+pm.test(<span class="s">"Status code is successful (201)"</span>, …)
+pm.test(<span class="s">"Response time is below 2000ms"</span>, …)
+pm.test(<span class="s">"Response matches the schema…"</span>, …)</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="demo">
+    <div class="section-head"><span class="num">02</span><h2>One command, a full Postman suite.</h2></div>
+    <div class="demo-grid">
+      <div>
+        <p class="prose" style="margin-bottom:1rem;">The generated collection for the Pets API above, folders and negative tests included — exactly what <code class="mono">generate --negative</code> produced for this page.</p>
+        <div class="tree">
+          <div class="folder">Pets</div>
+          <div class="row"><span class="method post">POST</span><span>Create pet</span></div>
+          <div class="row"><span class="method post">POST</span><span class="neg">[Negative] Create pet - unauthorized</span></div>
+          <div class="row"><span class="method post">POST</span><span class="neg">[Negative] Create pet - missing name</span></div>
+          <div class="row"><span class="method post">POST</span><span class="neg">[Negative] Create pet - invalid status</span></div>
+          <div class="row"><span class="method get">GET</span><span>List pets</span></div>
+          <div class="row"><span class="method get">GET</span><span class="neg">[Negative] List pets - unauthorized</span></div>
+          <div class="row"><span class="method get">GET</span><span>Get pet</span></div>
+          <div class="row"><span class="method get">GET</span><span class="neg">[Negative] Get pet - unauthorized</span></div>
+        </div>
+      </div>
+      <div>
+        <p class="prose" style="margin-bottom:1rem;"><code class="mono">openapi-postman run</code> executes the collection with Newman and writes three reports:</p>
+        <div class="reports">
+          <div class="report-chip"><span class="file">report.html</span><span class="desc">standalone, human-readable summary</span></div>
+          <div class="report-chip"><span class="file">junit.xml</span><span class="desc">for CI test-result panels</span></div>
+          <div class="report-chip"><span class="file">newman.json</span><span class="desc">raw run data, per-assertion detail</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="section-head"><span class="num">03</span><h2>Built for real specs, not happy-path demos.</h2></div>
+    <dl class="spec-table">
+      <div class="spec-row"><dt>Spec formats</dt><dd>Swagger 2.0 and OpenAPI 3.x, from a local file or a URL</dd></div>
+      <div class="spec-row"><dt>Bodies</dt><dd>JSON, form-urlencoded, multipart uploads, text, and binary responses</dd></div>
+      <div class="spec-row"><dt>Parameters</dt><dd>Path, query, header, cookie, array, and deep-object styles</dd></div>
+      <div class="spec-row"><dt>Auth</dt><dd>Bearer, Basic, OAuth token placeholders, API keys, and combined security requirements</dd></div>
+      <div class="spec-row"><dt>Assertions</dt><dd>Status-specific JSON Schema checks, media-type-aware response handling</dd></div>
+      <div class="spec-row"><dt>Ordering &amp; chaining</dt><dd>CRUD-oriented default order, configurable, with identifier extraction between dependent requests</dd></div>
+      <div class="spec-row"><dt>Negative tests</dt><dd>Missing-field, invalid-enum, boundary, and unauthorized cases — optional, off by default</dd></div>
+      <div class="spec-row"><dt>Safe mode</dt><dd>Excludes <code class="mono">DELETE</code> operations when testing against an unfamiliar API</dd></div>
+      <div class="spec-row"><dt>Runner</dt><dd>Newman execution with CLI, JSON, JUnit, and standalone HTML reports</dd></div>
+    </dl>
+  </section>
+
+  <section id="ai">
+    <div class="section-head"><span class="num">—</span><h2>Optional: AI-assisted planning</h2></div>
+    <p class="ai-note">A provider-neutral planner can propose operation order and variable mappings from a read-only prompt, with schema-validated output and automatic fallback between providers. The deterministic generator still writes every Postman script.</p>
+    <div class="badges">
+      <span class="badge">OpenAI SDK</span>
+      <span class="badge">Codex CLI</span>
+      <span class="badge">Claude Code CLI</span>
+      <span class="badge">Antigravity CLI</span>
+      <span class="badge">Custom command</span>
+    </div>
+  </section>
+
+  <section id="quickstart">
+    <div class="section-head"><span class="num">04</span><h2>From spec to suite in three commands.</h2></div>
+    <div class="qs-grid">
+      <div class="qs-row">
+        <div class="qs-num">1</div>
+        <div>
+          <h3>Install</h3>
+          <div class="console"><div class="console-body"><pre><span class="prompt">$</span> npm install -g openapi-postman-test-generator
+<span class="prompt">$</span> npm install -g newman</pre></div></div>
+        </div>
+      </div>
+      <div class="qs-row">
+        <div class="qs-num">2</div>
+        <div>
+          <h3>Generate</h3>
+          <div class="console"><div class="console-body"><pre><span class="prompt">$</span> openapi-postman generate <span class="flag">--spec</span> ./openapi.yaml <span class="flag">--negative</span> <span class="flag">--safe</span></pre></div></div>
+        </div>
+      </div>
+      <div class="qs-row">
+        <div class="qs-num">3</div>
+        <div>
+          <h3>Run</h3>
+          <div class="console"><div class="console-body"><pre><span class="prompt">$</span> openapi-postman run <span class="flag">--collection</span> ./generated/api.collection.json <span class="flag">--environment</span> ./generated/api.environment.json</pre></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="foot-grid">
+      <div>
+        <div class="mark"><span>spec</span><span class="arrow">⟶</span><span>tests</span></div>
+        <p class="prose" style="margin-top:.5rem; max-width:40ch;">Postman collections and API tests, generated from your OpenAPI spec.</p>
+      </div>
+      <div class="foot-links">
+        <a href="https://github.com/vannt-dev/openapi-postman-test-generator" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://www.npmjs.com/package/openapi-postman-test-generator" target="_blank" rel="noopener">npm</a>
+        <a href="https://github.com/vannt-dev/openapi-postman-test-generator/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+      </div>
+    </div>
+    <div class="foot-tags" style="margin-top:1.4rem;"><span>REV v0.3.1</span><span>NODE ≥20</span><span>© vannt-dev</span></div>
+  </footer>
+</div>
+
+<script>
+  (function(){
+    var btn = document.getElementById('copyInstall');
+    if(!btn) return;
+    var original = btn.querySelector('span').textContent;
+    btn.addEventListener('click', function(){
+      var text = 'npm install -g openapi-postman-test-generator';
+      var done = function(){
+        btn.querySelector('span').textContent = 'Copied ✓';
+        setTimeout(function(){ btn.querySelector('span').textContent = original; }, 1600);
+      };
+      try{
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text).then(done).catch(done);
+        } else { done(); }
+      }catch(e){ done(); }
+    });
+  })();
+</script>
+</body>
+</html>
