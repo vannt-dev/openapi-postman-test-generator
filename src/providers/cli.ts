@@ -5,17 +5,27 @@ import { AiProvider, PlanningInput, PlanningOptions, ProviderCapabilities } from
 import { AiProviderConfig } from '../types';
 import { CommandExecutor, defaultCommandExecutor, parseJson, unwrapStructuredOutput } from './command';
 
+interface CliSettings { timeoutMs: number; maxOutputBytes: number; model?: string }
+
 abstract class CliProvider implements AiProvider {
   readonly capabilities: ProviderCapabilities = { usesApiKey: false, usesLocalLogin: true, structuredOutput: true };
   abstract readonly name: string;
   constructor(protected readonly config: AiProviderConfig = {}, protected readonly executor: CommandExecutor = defaultCommandExecutor) {}
   abstract generate(input: PlanningInput, options: PlanningOptions): Promise<unknown>;
-  protected settings(options: PlanningOptions): { timeoutMs: number; maxOutputBytes: number; model?: string } {
+  protected settings(options: PlanningOptions): CliSettings {
     return {
       timeoutMs: options.timeoutMs,
       maxOutputBytes: options.maxOutputBytes,
       model: options.model || this.config.model,
     };
+  }
+  /** Runs the provider's default binary (overridable via config.command) and unwraps its stdout as the plan. */
+  protected async runCommand(defaultCommand: string, args: string[], settings: CliSettings, stdin?: string): Promise<unknown> {
+    const result = await this.executor({
+      command: this.config.command || defaultCommand, args, stdin,
+      timeoutMs: settings.timeoutMs, maxOutputBytes: settings.maxOutputBytes,
+    });
+    return unwrapStructuredOutput(parseJson(result.stdout));
   }
 }
 
@@ -50,8 +60,7 @@ export class ClaudeProvider extends CliProvider {
     const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(input.schema), '--permission-mode', 'plan', '--no-session-persistence'];
     if (settings.model) args.push('--model', settings.model);
     args.push(input.prompt);
-    const result = await this.executor({ command: this.config.command || 'claude', args, timeoutMs: settings.timeoutMs, maxOutputBytes: settings.maxOutputBytes });
-    return unwrapStructuredOutput(parseJson(result.stdout));
+    return this.runCommand('claude', args, settings);
   }
 }
 
@@ -61,7 +70,6 @@ export class AntigravityProvider extends CliProvider {
     const settings = this.settings(options);
     const args = ['-p', input.prompt, '--output-format', 'json', '--json-schema', JSON.stringify(input.schema)];
     if (settings.model) args.push('--model', settings.model);
-    const result = await this.executor({ command: this.config.command || 'agy', args, timeoutMs: settings.timeoutMs, maxOutputBytes: settings.maxOutputBytes });
-    return unwrapStructuredOutput(parseJson(result.stdout));
+    return this.runCommand('agy', args, settings);
   }
 }
