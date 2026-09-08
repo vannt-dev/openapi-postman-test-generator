@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 - 2026-09-08
+
+- Fixed `openapi-postman run` crashing with `EINVAL` on Windows: `execFile()` cannot spawn a `.cmd` file directly without `shell: true`, so newman is now launched through the same safe Windows shim resolution used by the AI CLI providers.
+- Added Windows-specific test coverage (`resolveWindowsCommand`, an end-to-end `runCollection()` run) and added `windows-latest` to the CI matrix so this class of bug is caught automatically going forward.
+- Replaced untyped `Record<string, unknown>` casts on generated Postman requests with proper `PostmanRequest`/`PostmanHeader`/`PostmanBody` types.
+- Deduplicated negative-test-variant generation and security-scheme classification in `OpenApiPostmanGenerator`, and extracted pure helpers (`exampleFor`, `toJsonSchema`, `classifySecurityScheme`) into `src/generator/`.
+- Deduplicated the CLI AI provider executor/unwrap logic shared by the Claude and Antigravity providers.
+
 ## 0.3.0 - 2026-09-08
 
 - Replaced the OpenAI-only planner integration with a provider-neutral contract and registry.

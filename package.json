@@ -1,6 +1,6 @@
 {
   "name": "openapi-postman-test-generator",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Generate Postman collections and API tests from Swagger/OpenAPI specs",
   "main": "dist/library.js",
   "types": "dist/library.d.ts",
