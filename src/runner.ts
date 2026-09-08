@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { resolveWindowsCommand } from './providers/command';
 
 export interface RunOptions {
   collection: string;
@@ -26,16 +27,18 @@ export function runCollection(options: RunOptions): Promise<RunResult> {
   fs.mkdirSync(reportDir, { recursive: true });
   const jsonPath = path.join(reportDir, 'newman.json');
   const junitPath = path.join(reportDir, 'junit.xml');
-  const executable = options.executable || (process.platform === 'win32' ? 'newman.cmd' : 'newman');
-  const args = [
+  const rawArgs = [
     ...(options.executableArgsPrefix || []),
     'run', path.resolve(options.collection),
     '--reporters', 'cli,json,junit',
     '--reporter-json-export', jsonPath,
     '--reporter-junit-export', junitPath,
   ];
-  if (options.environment) args.push('--environment', path.resolve(options.environment));
-  if (options.bail) args.push('--bail');
+  if (options.environment) rawArgs.push('--environment', path.resolve(options.environment));
+  if (options.bail) rawArgs.push('--bail');
+  // execFile() cannot launch a .cmd/.bat file directly on Windows without `shell: true`;
+  // resolve it the same safe way the AI CLI providers do instead of shelling out.
+  const { command: executable, args } = resolveWindowsCommand(options.executable || 'newman', rawArgs);
   return new Promise((resolve, reject) => {
     const child = execFile(executable, args, { windowsHide: true }, error => {
       if (!fs.existsSync(jsonPath)) {

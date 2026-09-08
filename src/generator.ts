@@ -1,8 +1,11 @@
+import { exampleFor } from './generator/example';
+import { toJsonSchema } from './generator/json-schema';
+import { classifySecurityScheme } from './generator/security';
 import {
   MediaType, OpenApiSpec, Operation, Parameter, PathItem, PostmanAuth,
-  PostmanCollection, PostmanEnvironment, PostmanEvent, PostmanItem,
-  PostmanVariable, Reference, RequestBody, Response, Schema, SecurityScheme,
-  VariableMapping,
+  PostmanBody, PostmanCollection, PostmanEnvironment, PostmanEvent, PostmanFormEntry,
+  PostmanHeader, PostmanItem, PostmanQueryParam, PostmanUrl, PostmanVariable,
+  Reference, RequestBody, Response, Schema, SecurityScheme, VariableMapping,
 } from './types';
 
 const HTTP_METHODS = ['get', 'post', 'put', 'delete', 'patch', 'head', 'options'] as const;
@@ -24,6 +27,7 @@ export class OpenApiPostmanGenerator {
   private readonly responseTimeMs: number;
   private readonly variables = new Map<string, PostmanVariable>();
   private readonly warnings: string[] = [];
+  private readonly resolveSchema = (schema: Schema): Schema => this.resolve<Schema>(schema);
 
   constructor(private readonly spec: OpenApiSpec, private readonly options: GeneratorOptions = {}) {
     this.baseUrl = options.baseUrl || this.detectBaseUrl();
@@ -82,22 +86,21 @@ export class OpenApiPostmanGenerator {
       { key: 'baseUrl', value: this.baseUrl, enabled: true, type: 'default' },
     ];
     for (const [key, scheme] of Object.entries(this.securitySchemes())) {
-      if (scheme.type === 'apiKey') values.push({ key, value: '', enabled: true, type: 'secret' });
-      if ((scheme.type === 'http' && scheme.scheme === 'basic') || scheme.type === 'basic') {
+      const kind = classifySecurityScheme(scheme);
+      if (kind === 'apiKey') values.push({ key, value: '', enabled: true, type: 'secret' });
+      if (kind === 'basic') {
         values.push({ key: `${key}_username`, value: '', enabled: true, type: 'secret' });
         values.push({ key: `${key}_password`, value: '', enabled: true, type: 'secret' });
       }
-      if ((scheme.type === 'http' && scheme.scheme === 'bearer') || scheme.type === 'oauth2') {
-        values.push({ key: `${key}_token`, value: '', enabled: true, type: 'secret' });
-      }
+      if (kind === 'bearer') values.push({ key: `${key}_token`, value: '', enabled: true, type: 'secret' });
     }
     return { name, values, _postman_variable_scope: 'environment', _postman_exported_using: 'swagger-to-postman-agent' };
   }
 
   private generateItem(route: string, method: string, pathItem: PathItem, operation: Operation): PostmanItem {
     const params = this.mergeParameters(pathItem.parameters, operation.parameters);
-    const headers: Array<Record<string, unknown>> = [];
-    const query: Array<Record<string, unknown>> = [];
+    const headers: PostmanHeader[] = [];
+    const query: PostmanQueryParam[] = [];
     const cookies: string[] = [];
     let rawPath = route;
     for (const parameter of params) {
@@ -122,10 +125,10 @@ export class OpenApiPostmanGenerator {
     }
     if (cookies.length) headers.push({ key: 'Cookie', value: cookies.join('; ') });
     const body = this.generateBody(operation, params, headers);
-    if (!headers.some(header => String(header.key).toLowerCase() === 'accept')) {
+    if (!headers.some(header => header.key.toLowerCase() === 'accept')) {
       headers.push({ key: 'Accept', value: this.preferredResponseType(operation) });
     }
-    const url: Record<string, unknown> = {
+    const url: PostmanUrl = {
       raw: `{{baseUrl}}${rawPath}`,
       host: ['{{baseUrl}}'],
       path: rawPath.split('/').filter(Boolean),
@@ -146,12 +149,12 @@ export class OpenApiPostmanGenerator {
     };
   }
 
-  private generateBody(operation: Operation, params: Parameter[], headers: Array<Record<string, unknown>>): Record<string, unknown> | undefined {
+  private generateBody(operation: Operation, params: Parameter[], headers: PostmanHeader[]): PostmanBody | undefined {
     const swaggerBody = params.find(p => p.in === 'body');
     const formParams = params.filter(p => p.in === 'formData');
     if (formParams.length) {
       const multipart = (operation.consumes || this.spec.consumes || []).includes('multipart/form-data');
-      const entries = formParams.map(p => ({
+      const entries: PostmanFormEntry[] = formParams.map(p => ({
         key: p.name, value: String(this.parameterExample(p)),
         type: p.type === 'file' ? 'file' : 'text', disabled: !p.required,
       }));
@@ -170,9 +173,9 @@ export class OpenApiPostmanGenerator {
     if (!schema && media?.example === undefined) return undefined;
     if (requestBody && (contentType === 'multipart/form-data' || contentType === 'application/x-www-form-urlencoded')) {
       const resolved = schema ? this.resolvedSchema(schema) : undefined;
-      const entries = Object.entries(resolved?.properties || {}).map(([key, property]) => ({
+      const entries: PostmanFormEntry[] = Object.entries(resolved?.properties || {}).map(([key, property]) => ({
         key,
-        value: property.format === 'binary' ? '' : String(this.exampleFor(property)),
+        value: property.format === 'binary' ? '' : String(exampleFor(property, this.resolveSchema)),
         type: property.format === 'binary' ? 'file' : 'text',
         disabled: resolved?.required ? !resolved.required.includes(key) : true,
       }));
@@ -180,7 +183,7 @@ export class OpenApiPostmanGenerator {
         ? { mode: 'formdata', formdata: entries }
         : { mode: 'urlencoded', urlencoded: entries };
     }
-    const example = media?.example ?? this.firstNamedExample(media) ?? this.exampleFor(schema!);
+    const example = media?.example ?? this.firstNamedExample(media) ?? exampleFor(schema!, this.resolveSchema);
     contentType ||= 'application/json';
     headers.push({ key: 'Content-Type', value: contentType });
     headers.push({ key: 'Accept', value: (operation.produces || this.spec.produces || ['application/json'])[0] });
@@ -196,7 +199,7 @@ export class OpenApiPostmanGenerator {
       const response = this.resolve<Response>(value);
       const contentType = this.responseContentType(response, operation);
       const schema = this.responseSchema(response, contentType);
-      return [code, { contentType, schema: schema ? this.toJsonSchema(schema) : null }];
+      return [code, { contentType, schema: schema ? toJsonSchema(schema, this.resolveSchema) : null }];
     }));
     const lines = [
       `pm.test("Status code is successful (${codes.join(', ')})", function () {`,
@@ -266,27 +269,24 @@ export class OpenApiPostmanGenerator {
   private authFor(requirements?: Array<Record<string, string[]>>): PostmanAuth | undefined {
     if (!requirements || requirements.length === 0) return undefined;
     const names = Object.keys(requirements[0]);
-    const name = names.find(candidate => {
-      const scheme = this.securitySchemes()[candidate];
-      return scheme?.type !== 'apiKey';
-    }) || names[0];
+    const name = names.find(candidate => classifySecurityScheme(this.securitySchemes()[candidate]) !== 'apiKey') || names[0];
     if (!name) return undefined;
     const scheme = this.securitySchemes()[name];
-    if (!scheme) return undefined;
-    if (scheme.type === 'apiKey') return {
+    const kind = classifySecurityScheme(scheme);
+    if (kind === 'apiKey') return {
       type: 'apikey', apikey: [
         { key: 'key', value: scheme.name || name, type: 'string' },
         { key: 'value', value: `{{${name}}}`, type: 'string' },
         { key: 'in', value: scheme.in || 'header', type: 'string' },
       ],
     };
-    if ((scheme.type === 'http' && scheme.scheme === 'basic') || scheme.type === 'basic') return {
+    if (kind === 'basic') return {
       type: 'basic', basic: [
         { key: 'username', value: `{{${name}_username}}`, type: 'string' },
         { key: 'password', value: `{{${name}_password}}`, type: 'string' },
       ],
     };
-    if ((scheme.type === 'http' && scheme.scheme === 'bearer') || scheme.type === 'oauth2') return {
+    if (kind === 'bearer') return {
       type: 'bearer', bearer: [{ key: 'token', value: `{{${name}_token}}`, type: 'string' }],
     };
     return undefined;
@@ -304,7 +304,7 @@ export class OpenApiPostmanGenerator {
   private parameterExample(p: Parameter): unknown {
     if (p.example !== undefined) return p.example;
     const schema: Schema = p.schema || { type: p.type, format: p.format, items: p.items, default: p.default, enum: p.enum };
-    return this.exampleFor(schema);
+    return exampleFor(schema, this.resolveSchema);
   }
 
   private serializeParameter(parameter: Parameter, value: unknown): string {
@@ -321,54 +321,6 @@ export class OpenApiPostmanGenerator {
         : entries.flatMap(([key, child]) => [key, String(child)]).join(',');
     }
     return String(value ?? '');
-  }
-
-  private exampleFor(input: Schema, depth = 0, seen = new Set<string>()): unknown {
-    if (depth > 12) return null;
-    let schema = input;
-    if (schema.$ref) {
-      if (seen.has(schema.$ref)) return null;
-      seen.add(schema.$ref);
-      schema = this.resolve<Schema>(schema);
-    }
-    if (schema.example !== undefined) return schema.example;
-    if (schema.default !== undefined) return schema.default;
-    if (schema.enum?.length) return schema.enum[0];
-    if (schema.allOf?.length) return Object.assign({}, ...schema.allOf.map(s => this.exampleFor(s, depth + 1, new Set(seen))));
-    if (schema.oneOf?.length || schema.anyOf?.length) return this.exampleFor((schema.oneOf || schema.anyOf)![0], depth + 1, seen);
-    if (schema.type === 'array') return [this.exampleFor(schema.items || {}, depth + 1, seen)];
-    if (schema.type === 'object' || schema.properties) {
-      const out: Record<string, unknown> = {};
-      for (const [key, prop] of Object.entries(schema.properties || {})) {
-        if (!prop.readOnly) out[key] = this.exampleFor(prop, depth + 1, new Set(seen));
-      }
-      return out;
-    }
-    if (schema.type === 'integer' || schema.type === 'number') return schema.minimum ?? 1;
-    if (schema.type === 'boolean') return true;
-    if (schema.format === 'date-time') return '2026-01-01T00:00:00.000Z';
-    if (schema.format === 'date') return '2026-01-01';
-    if (schema.format === 'email') return 'test@example.com';
-    if (schema.format === 'uuid') return '00000000-0000-4000-8000-000000000001';
-    if (schema.format === 'binary') return '';
-    return 'test';
-  }
-
-  private toJsonSchema(input: Schema, depth = 0): Record<string, unknown> {
-    if (depth > 12) return {};
-    const schema = input.$ref ? this.resolve<Schema>(input) : input;
-    const out: Record<string, unknown> = {};
-    for (const key of ['type', 'format', 'description', 'enum', 'minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'required', 'additionalProperties'] as const) {
-      if (schema[key] !== undefined) out[key] = schema[key];
-    }
-    if (!out.type && schema.properties) out.type = 'object';
-    if (schema.nullable) out.type = [String(out.type || 'object'), 'null'];
-    if (schema.properties) out.properties = Object.fromEntries(Object.entries(schema.properties).map(([k, v]) => [k, this.toJsonSchema(v, depth + 1)]));
-    if (schema.items) out.items = this.toJsonSchema(schema.items, depth + 1);
-    if (schema.allOf) out.allOf = schema.allOf.map(s => this.toJsonSchema(s, depth + 1));
-    if (schema.oneOf) out.oneOf = schema.oneOf.map(s => this.toJsonSchema(s, depth + 1));
-    if (schema.anyOf) out.anyOf = schema.anyOf.map(s => this.toJsonSchema(s, depth + 1));
-    return out;
   }
 
   private sortEntries(entries: OperationEntry[]): OperationEntry[] {
@@ -393,6 +345,7 @@ export class OpenApiPostmanGenerator {
   private generateNegativeItems(entry: OperationEntry): PostmanItem[] {
     const output: PostmanItem[] = [];
     const positive = this.generateItem(entry.route, entry.method, entry.pathItem, entry.operation);
+    const operationId = this.operationId(entry.route, entry.method, entry.operation);
     const security = entry.operation.security === undefined ? this.spec.security : entry.operation.security;
     if (security?.length) {
       const unauthorized = structuredClone(positive);
@@ -400,61 +353,71 @@ export class OpenApiPostmanGenerator {
       if (unauthorized.request) {
         unauthorized.request.auth = { type: 'noauth' };
         const schemes = Object.keys(security[0]).map(name => ({ name, scheme: this.securitySchemes()[name] }));
-        const apiKeyNames = schemes.filter(item => item.scheme?.type === 'apiKey').map(item => item.scheme.name || item.name);
-        unauthorized.request.header = ((unauthorized.request.header as Array<Record<string, unknown>>) || [])
-          .filter(header => !apiKeyNames.includes(String(header.key)) && !(String(header.key) === 'Cookie' && apiKeyNames.some(name => String(header.value).includes(`${name}=`))));
-        const url = unauthorized.request.url as Record<string, unknown>;
-        if (Array.isArray(url?.query)) url.query = url.query.filter((query: Record<string, unknown>) => !apiKeyNames.includes(String(query.key)));
+        const apiKeyNames = schemes.filter(item => classifySecurityScheme(item.scheme) === 'apiKey').map(item => item.scheme.name || item.name);
+        unauthorized.request.header = unauthorized.request.header.filter(header =>
+          !apiKeyNames.includes(header.key) && !(header.key === 'Cookie' && apiKeyNames.some(name => header.value.includes(`${name}=`))));
+        if (unauthorized.request.url.query) {
+          unauthorized.request.url.query = unauthorized.request.url.query.filter(query => !apiKeyNames.includes(query.key));
+        }
       }
       unauthorized.event = [this.negativeTest('Request is rejected without credentials', this.negativeCodes(entry.operation, [401, 403]))];
       output.push(unauthorized);
     }
 
+    // Clones `positive`, mutates its raw JSON body, and pushes the variant; silently
+    // skips non-JSON bodies and records a warning if the body cannot be parsed.
+    const buildVariant = (name: string, warnLabel: string, mutate: (data: Record<string, unknown>) => void, event?: PostmanEvent): void => {
+      if (positive.request?.body?.mode !== 'raw') return;
+      const clone = structuredClone(positive);
+      clone.name = name;
+      const body = clone.request!.body as Extract<PostmanBody, { mode: 'raw' }>;
+      try {
+        const data = JSON.parse(body.raw) as Record<string, unknown>;
+        mutate(data);
+        body.raw = JSON.stringify(data, null, 2);
+        if (event) clone.event = [event];
+        output.push(clone);
+      } catch {
+        this.warnings.push(`Could not generate ${warnLabel} test for ${operationId}`);
+      }
+    };
+
     const requestSchema = this.requestSchema(entry.operation, this.mergeParameters(entry.pathItem.parameters, entry.operation.parameters));
     const resolved = requestSchema ? this.resolvedSchema(requestSchema) : undefined;
+
     const requiredField = resolved?.required?.[0];
-    if (requiredField && positive.request?.body && (positive.request.body as Record<string, unknown>).mode === 'raw') {
-      const missing = structuredClone(positive);
-      missing.name = `[Negative] ${positive.name} - missing ${requiredField}`;
-      const body = missing.request?.body as Record<string, unknown>;
-      try {
-        const data = JSON.parse(String(body.raw));
-        delete data[requiredField];
-        body.raw = JSON.stringify(data, null, 2);
-        missing.event = [this.negativeTest(`Missing required field '${requiredField}' is rejected`, this.negativeCodes(entry.operation, [400, 422]))];
-        output.push(missing);
-      } catch { this.warnings.push(`Could not generate missing-field test for ${this.operationId(entry.route, entry.method, entry.operation)}`); }
+    if (requiredField) {
+      buildVariant(
+        `[Negative] ${positive.name} - missing ${requiredField}`,
+        'missing-field',
+        data => { delete data[requiredField]; },
+        this.negativeTest(`Missing required field '${requiredField}' is rejected`, this.negativeCodes(entry.operation, [400, 422])),
+      );
     }
 
     const enumField = Object.entries(resolved?.properties || {}).find(([, schema]) => schema.enum?.length)?.[0];
-    if (enumField && positive.request?.body && (positive.request.body as Record<string, unknown>).mode === 'raw') {
-      const invalidEnum = structuredClone(positive);
-      invalidEnum.name = `[Negative] ${positive.name} - invalid ${enumField}`;
-      const body = invalidEnum.request?.body as Record<string, unknown>;
-      try {
-        const data = JSON.parse(String(body.raw));
-        data[enumField] = '__invalid_enum__';
-        body.raw = JSON.stringify(data, null, 2);
-        invalidEnum.event = [this.negativeTest(`Invalid enum value for '${enumField}' is rejected`, this.negativeCodes(entry.operation, [400, 422]))];
-        output.push(invalidEnum);
-      } catch { this.warnings.push(`Could not generate invalid-enum test for ${this.operationId(entry.route, entry.method, entry.operation)}`); }
+    if (enumField) {
+      buildVariant(
+        `[Negative] ${positive.name} - invalid ${enumField}`,
+        'invalid-enum',
+        data => { data[enumField] = '__invalid_enum__'; },
+        this.negativeTest(`Invalid enum value for '${enumField}' is rejected`, this.negativeCodes(entry.operation, [400, 422])),
+      );
     }
 
     const boundaryField = Object.entries(resolved?.properties || {}).find(([, schema]) =>
       schema.minimum !== undefined || schema.maximum !== undefined || schema.minLength !== undefined || schema.maxLength !== undefined,
     );
-    if (boundaryField && positive.request?.body && (positive.request.body as Record<string, unknown>).mode === 'raw') {
+    if (boundaryField) {
       const [field, fieldSchema] = boundaryField;
-      const boundary = structuredClone(positive);
-      boundary.name = `[Boundary] ${positive.name} - ${field}`;
-      const body = boundary.request?.body as Record<string, unknown>;
-      try {
-        const data = JSON.parse(String(body.raw));
-        data[field] = fieldSchema.minimum ?? fieldSchema.maximum
-          ?? (fieldSchema.minLength !== undefined ? 'x'.repeat(fieldSchema.minLength) : 'x'.repeat(fieldSchema.maxLength || 1));
-        body.raw = JSON.stringify(data, null, 2);
-        output.push(boundary);
-      } catch { this.warnings.push(`Could not generate boundary test for ${this.operationId(entry.route, entry.method, entry.operation)}`); }
+      buildVariant(
+        `[Boundary] ${positive.name} - ${field}`,
+        'boundary',
+        data => {
+          data[field] = fieldSchema.minimum ?? fieldSchema.maximum
+            ?? (fieldSchema.minLength !== undefined ? 'x'.repeat(fieldSchema.minLength) : 'x'.repeat(fieldSchema.maxLength || 1));
+        },
+      );
     }
     return output;
   }
@@ -496,15 +459,15 @@ export class OpenApiPostmanGenerator {
 
   private applyAdditionalSecurity(
     requirements: Array<Record<string, string[]>> | undefined,
-    headers: Array<Record<string, unknown>>,
-    query: Array<Record<string, unknown>>,
+    headers: PostmanHeader[],
+    query: PostmanQueryParam[],
   ): void {
     if (!requirements?.[0]) return;
     const names = Object.keys(requirements[0]);
     if (names.length < 2) return;
     for (const name of names) {
       const scheme = this.securitySchemes()[name];
-      if (scheme?.type !== 'apiKey') continue;
+      if (classifySecurityScheme(scheme) !== 'apiKey') continue;
       const value = `{{${name}}}`;
       if (scheme.in === 'query') query.push({ key: scheme.name || name, value });
       else if (scheme.in === 'cookie') headers.push({ key: 'Cookie', value: `${scheme.name || name}=${value}` });

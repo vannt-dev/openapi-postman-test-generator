@@ -16,7 +16,7 @@ export interface CommandRequest {
 export interface CommandResult { stdout: string; stderr: string }
 export type CommandExecutor = (request: CommandRequest) => Promise<CommandResult>;
 
-function resolveWindowsCommand(command: string, args: string[]): { command: string; args: string[] } {
+export function resolveWindowsCommand(command: string, args: string[]): { command: string; args: string[] } {
   if (process.platform !== 'win32') return { command, args };
   const extension = path.extname(command).toLowerCase();
   let resolved = command;

@@ -117,7 +117,23 @@ export interface SecurityScheme {
 export interface PostmanVariable { key: string; value: string; type?: string; description?: string }
 export interface PostmanAuth { type: string; [key: string]: unknown }
 export interface PostmanEvent { listen: 'test' | 'prerequest'; script: { type: 'text/javascript'; exec: string[] } }
-export interface PostmanItem { name: string; request?: Record<string, unknown>; event?: PostmanEvent[]; item?: PostmanItem[] }
+export interface PostmanHeader { key: string; value: string; description?: string; disabled?: boolean }
+export interface PostmanQueryParam { key: string; value: string; description?: string; disabled?: boolean }
+export interface PostmanUrl { raw: string; host: string[]; path: string[]; query?: PostmanQueryParam[] }
+export interface PostmanFormEntry { key: string; value: string; type: 'text' | 'file'; disabled?: boolean }
+export type PostmanBody =
+  | { mode: 'raw'; raw: string; options: { raw: { language: 'json' | 'text' } } }
+  | { mode: 'formdata'; formdata: PostmanFormEntry[] }
+  | { mode: 'urlencoded'; urlencoded: PostmanFormEntry[] };
+export interface PostmanRequest {
+  method: string;
+  header: PostmanHeader[];
+  body?: PostmanBody;
+  url: PostmanUrl;
+  description?: string;
+  auth?: PostmanAuth;
+}
+export interface PostmanItem { name: string; request?: PostmanRequest; event?: PostmanEvent[]; item?: PostmanItem[] }
 export interface PostmanCollection {
   info: { name: string; description?: string; schema: string };
   item: PostmanItem[];

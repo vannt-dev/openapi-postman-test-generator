@@ -39,8 +39,8 @@
     "dev": "ts-node src/index.ts",
     "generate": "node dist/index.js",
     "lint": "eslint . && tsc --noEmit",
-    "test:smoke": "node test/smoke.js && node test/advanced.js && node test/ai-providers.js",
-    "test:e2e": "node test/e2e.js",
+    "test:smoke": "node test/smoke.js && node test/advanced.js && node test/ai-providers.js && node test/windows-command.js",
+    "test:e2e": "node test/e2e.js && node test/runner-windows.js",
     "test": "npm run build && npm run test:smoke && npm run test:e2e",
     "check": "npm run lint && npm test && npm audit --omit=dev",
     "prepublishOnly": "npm run check"
