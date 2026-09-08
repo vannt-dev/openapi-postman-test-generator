@@ -1,0 +1,20 @@
+# All fields are optional. CLI flags take precedence.
+baseUrl: https://test-api.example.com
+responseTimeMs: 2000
+safeMode: true
+includeNegative: true
+variables:
+  tenantId: test-tenant
+operationOrder:
+  - login
+  - createUser
+  - getUser
+  - updateUser
+  - deleteUser
+variableMappings:
+  - sourceOperationId: createUser
+    responseJsonPath: $.data.id
+    variable: userId
+    targetOperationIds: [getUser, updateUser, deleteUser]
+disabledOperations:
+  - chargeCreditCard

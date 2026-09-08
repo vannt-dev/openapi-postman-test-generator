@@ -1,47 +1,154 @@
+#!/usr/bin/env node
 import * as fs from 'fs';
 import * as path from 'path';
 import SwaggerParser from '@apidevtools/swagger-parser';
+import { createAgentPlan } from './ai';
+import { loadProjectConfig } from './config';
 import { OpenApiPostmanGenerator } from './generator';
-import { OpenApiSpec, PostmanItem } from './types';
+import { runCollection } from './runner';
+import { AgentPlan, OpenApiSpec, PostmanItem, ProjectConfig } from './types';
 
-interface CliOptions { spec: string; out: string; env: string; baseUrl?: string; responseTimeMs?: number }
+type Flags = Record<string, string | boolean>;
 
-function usage(): never {
-  console.error('Usage: swagger-to-postman --spec <openapi.yaml> [--out collection.json] [--env environment.json]');
-  console.error('Options: --base-url <url> --response-time <milliseconds>');
-  console.error('Legacy:  swagger-to-postman <swagger-file> [collection-file]');
-  process.exit(1);
+const BOOLEAN_FLAGS = new Set(['negative', 'safe', 'ai', 'run', 'bail', 'help']);
+const GENERATE_FLAGS = new Set(['spec', 'out', 'env', 'config', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'model', 'plan-out', 'run', 'report-dir']);
+const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'bail']);
+
+function printUsage(exitCode = 1): never {
+  console.error(`OpenAPI Postman Test Generator
+
+Usage:
+  openapi-postman generate --spec <file-or-url> [options]
+  openapi-postman run --collection <file> [options]
+
+Generate options:
+  --out <file>             Collection output (default: generated/api.collection.json)
+  --env <file>             Environment output (default: generated/api.environment.json)
+  --config <file>          YAML/JSON project configuration
+  --base-url <url>         Override the server URL
+  --response-time <ms>     Response-time assertion threshold
+  --negative               Generate negative test variants
+  --safe                   Skip DELETE operations
+  --ai                     Use OpenAI to plan operation order and variable mappings
+  --model <model>          Model used with --ai (or set OPENAI_MODEL)
+  --plan-out <file>        Save the structured AI plan
+  --run                    Run the generated collection immediately
+
+Run options:
+  --environment <file>     Postman environment file
+  --report-dir <directory> Report output directory (default: generated/reports)
+  --bail                   Stop after the first failure`);
+  process.exit(exitCode);
 }
 
-function parseArgs(args: string[]): CliOptions {
-  if (!args.length) return usage();
-  if (!args[0].startsWith('-')) {
-    const out = args[1] || 'generated/api.collection.json';
-    return { spec: args[0], out, env: path.join(path.dirname(out), 'api.environment.json') };
+function parseFlags(args: string[]): Flags {
+  const flags: Flags = {};
+  for (let index = 0; index < args.length; index++) {
+    const token = args[index];
+    if (!token.startsWith('--')) throw new Error(`Unexpected argument: ${token}`);
+    const key = token.slice(2);
+    if (BOOLEAN_FLAGS.has(key)) { flags[key] = true; continue; }
+    const next = args[index + 1];
+    if (!next || next.startsWith('--')) flags[key] = true;
+    else { flags[key] = next; index++; }
   }
-  const value = (name: string): string | undefined => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-  const spec = value('--spec');
-  if (!spec) return usage();
-  const out = value('--out') || 'generated/api.collection.json';
-  const responseTime = value('--response-time');
-  return { spec, out, env: value('--env') || path.join(path.dirname(out), 'api.environment.json'), baseUrl: value('--base-url'), responseTimeMs: responseTime ? Number(responseTime) : undefined };
+  return flags;
+}
+
+function validateFlags(flags: Flags, allowed: Set<string>): void {
+  const unknown = Object.keys(flags).filter(key => !allowed.has(key));
+  if (unknown.length) throw new Error(`Unknown option(s): ${unknown.map(key => `--${key}`).join(', ')}`);
+}
+
+function stringFlag(flags: Flags, key: string): string | undefined {
+  const value = flags[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberFlag(flags: Flags, key: string): number | undefined {
+  const raw = stringFlag(flags, key);
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) throw new Error(`--${key} must be a positive number`);
+  return value;
+}
+
+async function generate(flags: Flags): Promise<{ collection: string; environment: string }> {
+  validateFlags(flags, GENERATE_FLAGS);
+  const specLocation = stringFlag(flags, 'spec');
+  if (!specLocation) throw new Error('--spec is required');
+  const config = loadProjectConfig(stringFlag(flags, 'config'));
+  const spec = await SwaggerParser.validate(specLocation) as unknown as OpenApiSpec;
+  let agentPlan: AgentPlan | undefined;
+  if (flags.ai) {
+    const model = stringFlag(flags, 'model') || process.env.OPENAI_MODEL;
+    if (!model) throw new Error('--model or OPENAI_MODEL is required when --ai is enabled');
+    agentPlan = await createAgentPlan(spec, model);
+    const planPath = path.resolve(stringFlag(flags, 'plan-out') || 'generated/agent-plan.json');
+    fs.mkdirSync(path.dirname(planPath), { recursive: true });
+    fs.writeFileSync(planPath, `${JSON.stringify(agentPlan, null, 2)}\n`, 'utf8');
+    console.log(`AI plan:      ${planPath}`);
+  }
+  const merged: ProjectConfig = {
+    ...config,
+    baseUrl: stringFlag(flags, 'base-url') || config.baseUrl,
+    responseTimeMs: numberFlag(flags, 'response-time') || config.responseTimeMs,
+    safeMode: Boolean(flags.safe) || config.safeMode,
+    includeNegative: Boolean(flags.negative) || config.includeNegative || Boolean(agentPlan?.negativeScenarios.length),
+    operationOrder: agentPlan?.operationOrder || config.operationOrder,
+    variableMappings: agentPlan?.variableMappings || config.variableMappings,
+  };
+  const generator = new OpenApiPostmanGenerator(spec, merged);
+  const collection = generator.generate();
+  const environment = generator.generateEnvironment();
+  const collectionPath = path.resolve(stringFlag(flags, 'out') || 'generated/api.collection.json');
+  const environmentPath = path.resolve(stringFlag(flags, 'env') || 'generated/api.environment.json');
+  fs.mkdirSync(path.dirname(collectionPath), { recursive: true });
+  fs.mkdirSync(path.dirname(environmentPath), { recursive: true });
+  fs.writeFileSync(collectionPath, `${JSON.stringify(collection, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(environmentPath, `${JSON.stringify(environment, null, 2)}\n`, 'utf8');
+  console.log(`Generated ${countRequests(collection.item)} requests`);
+  console.log(`Collection:   ${collectionPath}`);
+  console.log(`Environment:  ${environmentPath}`);
+  for (const warning of [...(agentPlan?.warnings || []), ...generator.getWarnings()]) console.warn(`Warning: ${warning}`);
+  return { collection: collectionPath, environment: environmentPath };
+}
+
+async function run(flags: Flags): Promise<void> {
+  validateFlags(flags, RUN_FLAGS);
+  const collection = stringFlag(flags, 'collection');
+  if (!collection) throw new Error('--collection is required');
+  const result = await runCollection({
+    collection,
+    environment: stringFlag(flags, 'environment'),
+    reportDir: stringFlag(flags, 'report-dir') || 'generated/reports',
+    bail: Boolean(flags.bail),
+  });
+  console.log(`Completed ${result.requests} requests and ${result.assertions} assertions with ${result.failures} failure(s)`);
+  if (result.failures) process.exitCode = 1;
+}
+
+function countRequests(items: PostmanItem[]): number {
+  return items.reduce((total, item) => total + (item.request ? 1 : 0) + (item.item ? countRequests(item.item) : 0), 0);
 }
 
 async function main(): Promise<void> {
-  const options = parseArgs(process.argv.slice(2));
-  if (!fs.existsSync(options.spec)) throw new Error(`Spec file not found: ${options.spec}`);
-  const spec = await SwaggerParser.validate(options.spec) as unknown as OpenApiSpec;
-  const generator = new OpenApiPostmanGenerator(spec, { baseUrl: options.baseUrl, responseTimeMs: options.responseTimeMs });
-  const collection = generator.generate();
-  const environment = generator.generateEnvironment();
-  fs.mkdirSync(path.dirname(path.resolve(options.out)), { recursive: true });
-  fs.mkdirSync(path.dirname(path.resolve(options.env)), { recursive: true });
-  fs.writeFileSync(options.out, `${JSON.stringify(collection, null, 2)}\n`, 'utf8');
-  fs.writeFileSync(options.env, `${JSON.stringify(environment, null, 2)}\n`, 'utf8');
-  console.log(`Generated ${countRequests(collection.item)} requests`);
-  console.log(`Collection:  ${path.resolve(options.out)}`);
-  console.log(`Environment: ${path.resolve(options.env)}`);
+  const args = process.argv.slice(2);
+  if (!args.length) return printUsage();
+  if (args.includes('--help') || args.includes('-h')) return printUsage(0);
+  const explicitCommand = ['generate', 'run'].includes(args[0]);
+  const command = explicitCommand ? args.shift()! : 'generate';
+  // Preserve compatibility with the original positional syntax.
+  if (!explicitCommand && args[0] && !args[0].startsWith('--')) {
+    const spec = args.shift()!;
+    const out = args[0] && !args[0].startsWith('--') ? args.shift()! : undefined;
+    args.unshift('--spec', spec);
+    if (out) args.push('--out', out);
+  }
+  const flags = parseFlags(args);
+  if (command === 'run') return run(flags);
+  const generated = await generate(flags);
+  if (flags.run) await run({ collection: generated.collection, environment: generated.environment, 'report-dir': stringFlag(flags, 'report-dir') || 'generated/reports' });
 }
 
-function countRequests(items: PostmanItem[]): number { return items.reduce((n, item) => n + (item.request ? 1 : 0) + (item.item ? countRequests(item.item) : 0), 0); }
 main().catch(error => { console.error(`Error: ${error instanceof Error ? error.message : String(error)}`); process.exit(1); });

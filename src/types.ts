@@ -55,6 +55,11 @@ export interface Parameter {
   default?: unknown;
   enum?: unknown[];
   example?: unknown;
+  examples?: Record<string, { value?: unknown }>;
+  style?: string;
+  explode?: boolean;
+  allowReserved?: boolean;
+  collectionFormat?: string;
 }
 
 export interface RequestBody { description?: string; required?: boolean; content: Record<string, MediaType> }
@@ -79,6 +84,12 @@ export interface Schema {
   minLength?: number;
   maxLength?: number;
   pattern?: string;
+  minItems?: number;
+  maxItems?: number;
+  uniqueItems?: boolean;
+  multipleOf?: number;
+  exclusiveMinimum?: boolean | number;
+  exclusiveMaximum?: boolean | number;
   allOf?: Schema[];
   oneOf?: Schema[];
   anyOf?: Schema[];
@@ -112,6 +123,36 @@ export interface PostmanCollection {
   item: PostmanItem[];
   variable: PostmanVariable[];
   auth?: PostmanAuth;
+}
+
+export interface VariableMapping {
+  sourceOperationId: string;
+  responseJsonPath: string;
+  variable: string;
+  targetOperationIds?: string[];
+}
+
+export interface AgentPlan {
+  operationOrder: string[];
+  variableMappings: VariableMapping[];
+  negativeScenarios: Array<{
+    operationId: string;
+    name: string;
+    kind: 'missing_required' | 'boundary' | 'invalid_enum' | 'unauthorized';
+    field?: string | null;
+  }>;
+  warnings: string[];
+}
+
+export interface ProjectConfig {
+  baseUrl?: string;
+  responseTimeMs?: number;
+  safeMode?: boolean;
+  includeNegative?: boolean;
+  variables?: Record<string, string>;
+  operationOrder?: string[];
+  variableMappings?: VariableMapping[];
+  disabledOperations?: string[];
 }
 export interface PostmanEnvironment {
   name: string;
