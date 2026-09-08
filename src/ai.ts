@@ -1,58 +1,77 @@
-import OpenAI from 'openai';
-import { zodTextFormat } from 'openai/helpers/zod';
-import { z } from 'zod';
-import { AgentPlan, OpenApiSpec } from './types';
+import { AiProvider, createPlanningInput, validateAgentPlan } from './ai-contract';
+import { AntigravityProvider, ClaudeProvider, CodexProvider } from './providers/cli';
+import { CustomCommandProvider } from './providers/command';
+import { OpenAiProvider } from './providers/openai';
+import { AgentPlan, AiProviderConfig, OpenApiSpec } from './types';
 
-const AgentPlanSchema = z.object({
-  operationOrder: z.array(z.string()),
-  variableMappings: z.array(z.object({
-    sourceOperationId: z.string(),
-    responseJsonPath: z.string(),
-    variable: z.string(),
-    targetOperationIds: z.array(z.string()),
-  })),
-  negativeScenarios: z.array(z.object({
-    operationId: z.string(),
-    name: z.string(),
-    kind: z.enum(['missing_required', 'boundary', 'invalid_enum', 'unauthorized']),
-    field: z.string().nullable(),
-  })),
-  warnings: z.array(z.string()),
-});
-
-export async function createAgentPlan(spec: OpenApiSpec, model: string): Promise<AgentPlan> {
-  if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is required when --ai is enabled');
-  const client = new OpenAI();
-  const operations = Object.entries(spec.paths).flatMap(([route, pathItem]) =>
-    ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'].flatMap(method => {
-      const operation = pathItem[method as keyof typeof pathItem];
-      if (!operation || Array.isArray(operation) || !('responses' in operation)) return [];
-      return [{
-        operationId: operation.operationId || `${method} ${route}`,
-        method: method.toUpperCase(),
-        route,
-        summary: operation.summary || '',
-        parameters: (operation.parameters || []).map(parameter => '$ref' in parameter ? parameter.$ref : `${parameter.in}:${parameter.name}`),
-        responseCodes: Object.keys(operation.responses),
-      }];
-    }),
-  );
-  const response = await client.responses.parse({
-    model,
-    input: [
-      {
-        role: 'system',
-        content: [
-          'You plan safe API test workflows from an OpenAPI operation summary.',
-          'Order create/authentication operations before dependent reads and updates, and cleanup deletes last.',
-          'Map response identifiers to variables only when the relationship is well supported.',
-          'Never invent operation IDs. Report uncertainty in warnings.',
-        ].join(' '),
-      },
-      { role: 'user', content: JSON.stringify({ title: spec.info.title, operations }) },
-    ],
-    text: { format: zodTextFormat(AgentPlanSchema, 'api_test_plan') },
-  });
-  if (!response.output_parsed) throw new Error('The AI provider returned no structured workflow plan');
-  return response.output_parsed;
+export interface AiPlanningRequest {
+  provider: string;
+  fallback?: string[];
+  model?: string;
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+  providers?: Record<string, AiProviderConfig>;
 }
+
+export interface AiPlanningResult {
+  plan: AgentPlan;
+  provider: string;
+  failedProviders: Array<{ provider: string; error: string }>;
+}
+
+export class AiProviderRegistry {
+  private readonly providers = new Map<string, AiProvider>();
+  register(provider: AiProvider): this { this.providers.set(provider.name.toLowerCase(), provider); return this; }
+  get(name: string): AiProvider | undefined { return this.providers.get(name.toLowerCase()); }
+  names(): string[] { return [...this.providers.keys()]; }
+}
+
+export function createProviderRegistry(configs: Record<string, AiProviderConfig> = {}): AiProviderRegistry {
+  const registry = new AiProviderRegistry();
+  registry.register(new OpenAiProvider(configs.openai));
+  registry.register(new CodexProvider(configs.codex));
+  registry.register(new ClaudeProvider(configs.claude));
+  registry.register(new AntigravityProvider(configs.antigravity || configs.agy));
+  for (const [name, config] of Object.entries(configs)) {
+    const type = config.type || name.toLowerCase();
+    if (type === 'command') registry.register(new CustomCommandProvider(name, config));
+  }
+  return registry;
+}
+
+export async function planWithProviders(
+  spec: OpenApiSpec,
+  request: AiPlanningRequest,
+  registry = createProviderRegistry(request.providers),
+): Promise<AiPlanningResult> {
+  const names = [...new Set([request.provider, ...(request.fallback || [])].map((name) => name.trim()).filter(Boolean))];
+  const failedProviders: AiPlanningResult['failedProviders'] = [];
+  const input = createPlanningInput(spec);
+  for (const name of names) {
+    const provider = registry.get(name);
+    if (!provider) {
+      failedProviders.push({ provider: name, error: `Unknown provider. Available providers: ${registry.names().join(', ')}` });
+      continue;
+    }
+    try {
+      const providerConfig = request.providers?.[name];
+      const rawPlan = await provider.generate(input, {
+        model: request.model || providerConfig?.model,
+        timeoutMs: request.timeoutMs || providerConfig?.timeoutMs || 120_000,
+        maxOutputBytes: request.maxOutputBytes || providerConfig?.maxOutputBytes || 1_048_576,
+      });
+      return { plan: validateAgentPlan(rawPlan), provider: name, failedProviders };
+    } catch (error) {
+      failedProviders.push({ provider: name, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  throw new Error(`All AI providers failed: ${failedProviders.map((item) => `${item.provider}: ${item.error}`).join('; ')}`);
+}
+
+/** Backward-compatible OpenAI-only entry point. */
+export async function createAgentPlan(spec: OpenApiSpec, model: string): Promise<AgentPlan> {
+  return (await planWithProviders(spec, { provider: 'openai', model })).plan;
+}
+
+export { AgentPlanSchema, AGENT_PLAN_JSON_SCHEMA, buildPlanningPrompt, validateAgentPlan } from './ai-contract';
+export type { AiProvider, PlanningInput, PlanningOptions, ProviderCapabilities } from './ai-contract';

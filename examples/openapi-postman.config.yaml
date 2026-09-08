@@ -18,3 +18,30 @@ variableMappings:
     targetOperationIds: [getUser, updateUser, deleteUser]
 disabledOperations:
   - chargeCreditCard
+
+# AI planning is optional. CLI-based providers reuse their own authenticated session.
+ai:
+  provider: codex
+  fallback: [claude, antigravity, openai]
+  timeoutMs: 120000
+  maxOutputBytes: 1048576
+  providers:
+    codex:
+      type: codex
+      command: codex
+    claude:
+      type: claude
+      command: claude
+    antigravity:
+      type: antigravity
+      command: agy
+    openai:
+      type: openai
+      model: your-supported-model
+      apiKeyEnv: OPENAI_API_KEY
+    local-agent:
+      type: command
+      command: my-agent
+      args: [--json-schema, "{schema}"]
+      input: stdin
+      output: stdout-json

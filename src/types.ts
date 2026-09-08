@@ -144,6 +144,27 @@ export interface AgentPlan {
   warnings: string[];
 }
 
+export interface AiProviderConfig {
+  type?: 'openai' | 'codex' | 'claude' | 'antigravity' | 'command';
+  command?: string;
+  args?: string[];
+  model?: string;
+  apiKeyEnv?: string;
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+  input?: 'stdin' | 'argument';
+  output?: 'stdout-json' | 'stdout-text' | 'output-file';
+}
+
+export interface AiConfig {
+  provider?: string;
+  fallback?: string[];
+  model?: string;
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+  providers?: Record<string, AiProviderConfig>;
+}
+
 export interface ProjectConfig {
   baseUrl?: string;
   responseTimeMs?: number;
@@ -153,6 +174,7 @@ export interface ProjectConfig {
   operationOrder?: string[];
   variableMappings?: VariableMapping[];
   disabledOperations?: string[];
+  ai?: AiConfig;
 }
 export interface PostmanEnvironment {
   name: string;

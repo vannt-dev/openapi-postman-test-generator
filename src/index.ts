@@ -2,7 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import SwaggerParser from '@apidevtools/swagger-parser';
-import { createAgentPlan } from './ai';
+import { planWithProviders } from './ai';
 import { loadProjectConfig } from './config';
 import { OpenApiPostmanGenerator } from './generator';
 import { runCollection } from './runner';
@@ -11,7 +11,7 @@ import { AgentPlan, OpenApiSpec, PostmanItem, ProjectConfig } from './types';
 type Flags = Record<string, string | boolean>;
 
 const BOOLEAN_FLAGS = new Set(['negative', 'safe', 'ai', 'run', 'bail', 'help']);
-const GENERATE_FLAGS = new Set(['spec', 'out', 'env', 'config', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'model', 'plan-out', 'run', 'report-dir']);
+const GENERATE_FLAGS = new Set(['spec', 'out', 'env', 'config', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir']);
 const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'bail']);
 
 function printUsage(exitCode = 1): never {
@@ -29,8 +29,12 @@ Generate options:
   --response-time <ms>     Response-time assertion threshold
   --negative               Generate negative test variants
   --safe                   Skip DELETE operations
-  --ai                     Use OpenAI to plan operation order and variable mappings
-  --model <model>          Model used with --ai (or set OPENAI_MODEL)
+  --ai                     Use an AI provider to plan workflows and variable mappings
+  --ai-provider <name>     Provider: openai, codex, claude, antigravity, or configured command
+  --ai-fallback <names>    Comma-separated fallback providers
+  --ai-timeout <ms>        Timeout for each provider (default: 120000)
+  --ai-max-output <bytes>  Maximum provider output (default: 1048576)
+  --model <model>          Optional provider-specific model override
   --plan-out <file>        Save the structured AI plan
   --run                    Run the generated collection immediately
 
@@ -81,13 +85,24 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
   const spec = await SwaggerParser.validate(specLocation) as unknown as OpenApiSpec;
   let agentPlan: AgentPlan | undefined;
   if (flags.ai) {
-    const model = stringFlag(flags, 'model') || process.env.OPENAI_MODEL;
-    if (!model) throw new Error('--model or OPENAI_MODEL is required when --ai is enabled');
-    agentPlan = await createAgentPlan(spec, model);
+    const aiConfig = config.ai || {};
+    const provider = stringFlag(flags, 'ai-provider') || aiConfig.provider || 'openai';
+    const fallback = stringFlag(flags, 'ai-fallback')?.split(',').map(value => value.trim()).filter(Boolean) || aiConfig.fallback;
+    const result = await planWithProviders(spec, {
+      provider,
+      fallback,
+      model: stringFlag(flags, 'model') || aiConfig.model || process.env.AI_MODEL || process.env.OPENAI_MODEL,
+      timeoutMs: numberFlag(flags, 'ai-timeout') || aiConfig.timeoutMs,
+      maxOutputBytes: numberFlag(flags, 'ai-max-output') || aiConfig.maxOutputBytes,
+      providers: aiConfig.providers,
+    });
+    agentPlan = result.plan;
     const planPath = path.resolve(stringFlag(flags, 'plan-out') || 'generated/agent-plan.json');
     fs.mkdirSync(path.dirname(planPath), { recursive: true });
     fs.writeFileSync(planPath, `${JSON.stringify(agentPlan, null, 2)}\n`, 'utf8');
+    console.log(`AI provider:  ${result.provider}`);
     console.log(`AI plan:      ${planPath}`);
+    for (const failure of result.failedProviders) console.warn(`Warning: AI provider ${failure.provider} failed: ${failure.error}`);
   }
   const merged: ProjectConfig = {
     ...config,

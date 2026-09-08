@@ -1,6 +1,6 @@
 {
   "name": "openapi-postman-test-generator",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Generate Postman collections and API tests from Swagger/OpenAPI specs",
   "main": "dist/library.js",
   "types": "dist/library.d.ts",
@@ -39,7 +39,7 @@
     "dev": "ts-node src/index.ts",
     "generate": "node dist/index.js",
     "lint": "eslint . && tsc --noEmit",
-    "test:smoke": "node test/smoke.js && node test/advanced.js",
+    "test:smoke": "node test/smoke.js && node test/advanced.js && node test/ai-providers.js",
     "test:e2e": "node test/e2e.js",
     "test": "npm run build && npm run test:smoke && npm run test:e2e",
     "check": "npm run lint && npm test && npm audit --omit=dev",

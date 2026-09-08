@@ -16,14 +16,17 @@ The core generator is deterministic. An optional AI planner uses structured mode
 - Optional missing-field, invalid-enum, boundary, and unauthorized cases
 - Safe mode that excludes `DELETE` operations
 - Newman execution with CLI, JSON, JUnit, and standalone HTML reports
-- Optional OpenAI workflow planner with Zod Structured Outputs
+- Provider-neutral AI planner with schema-validated output and fallback providers
+- Built-in OpenAI SDK, Codex CLI, Claude Code, and Antigravity CLI adapters
+- Safe custom-command adapter and a public provider registry for future integrations
 
 ## Requirements
 
 - Node.js 20 or newer
 - A Swagger 2.0 or OpenAPI 3.x document
 - Newman available on `PATH` when running generated collections (`npm install --global newman`)
-- `OPENAI_API_KEY` only when `--ai` is enabled
+- An authenticated provider CLI when using Codex, Claude, or Antigravity
+- `OPENAI_API_KEY` only when the OpenAI SDK provider is selected
 
 ## Install and build
 
@@ -70,6 +73,36 @@ Or generate and run in one command by adding `--run`. The report directory conta
 
 ## Optional AI planning
 
+The local CLI providers reuse the account session already established by their own login command. They do not require this project to store an API key.
+
+Use Codex with its cached login:
+
+```bash
+node dist/index.js generate \
+  --spec ./openapi.yaml \
+  --ai \
+  --ai-provider codex
+```
+
+Claude Code and Antigravity work the same way:
+
+```bash
+node dist/index.js generate --spec ./openapi.yaml --ai --ai-provider claude
+node dist/index.js generate --spec ./openapi.yaml --ai --ai-provider antigravity
+```
+
+Configure automatic fallback when a CLI is unavailable, logged out, times out, or returns an invalid plan:
+
+```bash
+node dist/index.js generate \
+  --spec ./openapi.yaml \
+  --ai \
+  --ai-provider codex \
+  --ai-fallback claude,antigravity,openai
+```
+
+The OpenAI SDK provider still supports direct API access:
+
 Set credentials and explicitly choose a model:
 
 ```bash
@@ -79,10 +112,32 @@ export OPENAI_MODEL="your-supported-model"
 node dist/index.js generate \
   --spec ./openapi.yaml \
   --ai \
+  --ai-provider openai \
   --plan-out ./generated/agent-plan.json
 ```
 
-The AI planner only returns a schema-validated plan containing operation order, response-to-variable mappings, negative scenarios, and warnings. It does not write arbitrary Postman scripts.
+Every provider receives the same read-only planning prompt and must return the same schema-validated plan. Codex runs with a read-only sandbox and Claude runs in plan permission mode. The deterministic generator—not the AI provider—writes Postman scripts.
+
+### Add any command-based provider
+
+Define it in the project configuration without modifying source code:
+
+```yaml
+ai:
+  provider: local-agent
+  fallback: [codex]
+  timeoutMs: 120000
+  maxOutputBytes: 1048576
+  providers:
+    local-agent:
+      type: command
+      command: my-agent
+      args: [--json-schema, "{schema}"]
+      input: stdin
+      output: stdout-json
+```
+
+Commands are launched directly without a shell. Supported argument placeholders are `{prompt}`, `{schema}`, `{schemaFile}`, `{outputFile}`, and `{model}`. The command must print either the plan JSON itself or a JSON envelope containing `structured_output`, `output_parsed`, `result`, or `response`; set `output: output-file` when it writes to `{outputFile}` instead. Library consumers can register an `AiProvider` implementation with `AiProviderRegistry` for SDK-based integrations.
 
 ## Configuration
 
@@ -102,6 +157,13 @@ variableMappings:
     variable: userId
     targetOperationIds: [getUser, deleteUser]
 disabledOperations: [chargeCreditCard]
+ai:
+  provider: codex
+  fallback: [claude, antigravity]
+  providers:
+    codex:
+      type: codex
+      command: codex
 ```
 
 ## Development
@@ -113,7 +175,7 @@ npm run check
 npm pack --dry-run
 ```
 
-The test suite includes Swagger 2.0 and OpenAPI 3.x smoke tests, advanced generator cases, and runner/report integration tests. Newman remains an external runtime tool so its legacy transitive dependencies are not shipped to library consumers.
+The test suite includes Swagger 2.0 and OpenAPI 3.x smoke tests, advanced generator cases, provider contract and fallback tests, and runner/report integration tests. Newman remains an external runtime tool so its legacy transitive dependencies are not shipped to library consumers.
 
 ## Safety and limitations
 
