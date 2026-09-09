@@ -11,8 +11,8 @@ import { AgentPlan, OpenApiSpec, PostmanItem, ProjectConfig } from './types';
 type Flags = Record<string, string | boolean>;
 
 const BOOLEAN_FLAGS = new Set(['negative', 'safe', 'ai', 'run', 'bail', 'help']);
-const GENERATE_FLAGS = new Set(['spec', 'out', 'env', 'config', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir']);
-const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'bail']);
+const GENERATE_FLAGS = new Set(['spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail']);
+const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'iteration-data', 'run-timeout', 'bail']);
 
 function printUsage(exitCode = 1): never {
   console.error(`OpenAPI Postman Test Generator
@@ -25,6 +25,7 @@ Generate options:
   --out <file>             Collection output (default: generated/api.collection.json)
   --env <file>             Environment output (default: generated/api.environment.json)
   --config <file>          YAML/JSON project configuration
+  --profile <name>         Apply a named environment profile from the config
   --base-url <url>         Override the server URL
   --response-time <ms>     Response-time assertion threshold
   --negative               Generate negative test variants
@@ -40,6 +41,8 @@ Generate options:
 
 Run options:
   --environment <file>     Postman environment file
+  --iteration-data <file>  JSON or CSV data file for data-driven runs
+  --run-timeout <ms>       Maximum total Newman runtime (default: 300000)
   --report-dir <directory> Report output directory (default: generated/reports)
   --bail                   Stop after the first failure`);
   process.exit(exitCode);
@@ -53,7 +56,7 @@ function parseFlags(args: string[]): Flags {
     const key = token.slice(2);
     if (BOOLEAN_FLAGS.has(key)) { flags[key] = true; continue; }
     const next = args[index + 1];
-    if (!next || next.startsWith('--')) flags[key] = true;
+    if (!next || next.startsWith('--')) throw new Error(`--${key} requires a value`);
     else { flags[key] = next; index++; }
   }
   return flags;
@@ -82,6 +85,9 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
   const specLocation = stringFlag(flags, 'spec');
   if (!specLocation) throw new Error('--spec is required');
   const config = loadProjectConfig(stringFlag(flags, 'config'));
+  const profileName = stringFlag(flags, 'profile');
+  const profile = profileName ? config.profiles?.[profileName] : undefined;
+  if (profileName && !profile) throw new Error(`Unknown config profile: ${profileName}`);
   const spec = await SwaggerParser.validate(specLocation) as unknown as OpenApiSpec;
   let agentPlan: AgentPlan | undefined;
   if (flags.ai) {
@@ -106,16 +112,18 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
   }
   const merged: ProjectConfig = {
     ...config,
-    baseUrl: stringFlag(flags, 'base-url') || config.baseUrl,
+    baseUrl: stringFlag(flags, 'base-url') || profile?.baseUrl || config.baseUrl,
     responseTimeMs: numberFlag(flags, 'response-time') || config.responseTimeMs,
     safeMode: Boolean(flags.safe) || config.safeMode,
     includeNegative: Boolean(flags.negative) || config.includeNegative || Boolean(agentPlan?.negativeScenarios.length),
+    variables: { ...(config.variables || {}), ...(profile?.variables || {}) },
     operationOrder: agentPlan?.operationOrder || config.operationOrder,
     variableMappings: agentPlan?.variableMappings || config.variableMappings,
+    negativeScenarios: agentPlan?.negativeScenarios || config.negativeScenarios,
   };
   const generator = new OpenApiPostmanGenerator(spec, merged);
   const collection = generator.generate();
-  const environment = generator.generateEnvironment();
+  const environment = generator.generateEnvironment(profile?.environmentName);
   const collectionPath = path.resolve(stringFlag(flags, 'out') || 'generated/api.collection.json');
   const environmentPath = path.resolve(stringFlag(flags, 'env') || 'generated/api.environment.json');
   fs.mkdirSync(path.dirname(collectionPath), { recursive: true });
@@ -137,6 +145,8 @@ async function run(flags: Flags): Promise<void> {
     collection,
     environment: stringFlag(flags, 'environment'),
     reportDir: stringFlag(flags, 'report-dir') || 'generated/reports',
+    iterationData: stringFlag(flags, 'iteration-data'),
+    timeoutMs: numberFlag(flags, 'run-timeout'),
     bail: Boolean(flags.bail),
   });
   console.log(`Completed ${result.requests} requests and ${result.assertions} assertions with ${result.failures} failure(s)`);
@@ -163,7 +173,14 @@ async function main(): Promise<void> {
   const flags = parseFlags(args);
   if (command === 'run') return run(flags);
   const generated = await generate(flags);
-  if (flags.run) await run({ collection: generated.collection, environment: generated.environment, 'report-dir': stringFlag(flags, 'report-dir') || 'generated/reports' });
+  if (flags.run) await run({
+    collection: generated.collection,
+    environment: generated.environment,
+    'report-dir': stringFlag(flags, 'report-dir') || 'generated/reports',
+    ...(stringFlag(flags, 'iteration-data') ? { 'iteration-data': stringFlag(flags, 'iteration-data')! } : {}),
+    ...(stringFlag(flags, 'run-timeout') ? { 'run-timeout': stringFlag(flags, 'run-timeout')! } : {}),
+    bail: Boolean(flags.bail),
+  });
 }
 
 main().catch(error => { console.error(`Error: ${error instanceof Error ? error.message : String(error)}`); process.exit(1); });

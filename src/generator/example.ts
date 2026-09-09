@@ -13,16 +13,17 @@ export function exampleFor(input: Schema, resolve: (schema: Schema) => Schema, d
   if (schema.enum?.length) return schema.enum[0];
   if (schema.allOf?.length) return Object.assign({}, ...schema.allOf.map(s => exampleFor(s, resolve, depth + 1, new Set(seen))));
   if (schema.oneOf?.length || schema.anyOf?.length) return exampleFor((schema.oneOf || schema.anyOf)![0], resolve, depth + 1, seen);
-  if (schema.type === 'array') return [exampleFor(schema.items || {}, resolve, depth + 1, seen)];
-  if (schema.type === 'object' || schema.properties) {
+  const type = Array.isArray(schema.type) ? schema.type.find(value => value !== 'null') : schema.type;
+  if (type === 'array') return [exampleFor(schema.items || {}, resolve, depth + 1, seen)];
+  if (type === 'object' || schema.properties) {
     const out: Record<string, unknown> = {};
     for (const [key, prop] of Object.entries(schema.properties || {})) {
       if (!prop.readOnly) out[key] = exampleFor(prop, resolve, depth + 1, new Set(seen));
     }
     return out;
   }
-  if (schema.type === 'integer' || schema.type === 'number') return schema.minimum ?? 1;
-  if (schema.type === 'boolean') return true;
+  if (type === 'integer' || type === 'number') return schema.minimum ?? 1;
+  if (type === 'boolean') return true;
   if (schema.format === 'date-time') return '2026-01-01T00:00:00.000Z';
   if (schema.format === 'date') return '2026-01-01';
   if (schema.format === 'email') return 'test@example.com';

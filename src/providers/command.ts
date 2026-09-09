@@ -29,6 +29,10 @@ export function resolveWindowsCommand(command: string, args: string[]): { comman
   }
   const shimDirectory = path.dirname(resolved);
   const shimName = path.basename(resolved, path.extname(resolved)).toLowerCase();
+  if (shimName === 'newman') {
+    const newmanScript = path.join(shimDirectory, 'node_modules', 'newman', 'bin', 'newman.js');
+    if (fs.existsSync(newmanScript)) return { command: process.execPath, args: [newmanScript, ...args] };
+  }
   const architecture = process.arch === 'arm64' ? 'arm64' : 'x64';
   const nativeCandidates = shimName === 'codex' ? [
     path.join(shimDirectory, 'node_modules', '@openai', 'codex', 'node_modules', '@openai', `codex-win32-${architecture}`, 'vendor', `${architecture === 'arm64' ? 'aarch64' : 'x86_64'}-pc-windows-msvc`, 'bin', 'codex.exe'),

@@ -29,6 +29,17 @@ try {
   assert.equal(wrapped.command, 'powershell.exe');
   assert.deepEqual(wrapped.args, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps1Path, 'a']);
 
+  // Newman npm shims resolve directly to their JavaScript entrypoint, allowing
+  // reliable timeouts without leaving a child process behind.
+  const newmanShim = path.join(tempDir, 'newman.ps1');
+  const newmanScript = path.join(tempDir, 'node_modules', 'newman', 'bin', 'newman.js');
+  fs.mkdirSync(path.dirname(newmanScript), { recursive: true });
+  fs.writeFileSync(newmanShim, '');
+  fs.writeFileSync(newmanScript, '');
+  const newman = resolveWindowsCommand('newman', ['run', 'collection.json']);
+  assert.equal(newman.command, process.execPath);
+  assert.deepEqual(newman.args, [newmanScript, 'run', 'collection.json']);
+
   // A bare command name is resolved from PATH and, once it's a plain .exe, launched directly.
   const exePath = path.join(tempDir, 'mytool2.exe');
   fs.writeFileSync(exePath, '');

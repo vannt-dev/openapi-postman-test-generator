@@ -18,6 +18,19 @@ variableMappings:
     targetOperationIds: [getUser, updateUser, deleteUser]
 disabledOperations:
   - chargeCreditCard
+negativeScenarios:
+  - operationId: createUser
+    name: email is required
+    kind: missing_required
+    field: email
+
+# Select with --profile staging. Profile variables override shared variables.
+profiles:
+  staging:
+    baseUrl: https://staging-api.example.com
+    environmentName: Staging API
+    variables:
+      tenantId: staging-tenant
 
 # AI planning is optional. CLI-based providers reuse their own authenticated session.
 ai:

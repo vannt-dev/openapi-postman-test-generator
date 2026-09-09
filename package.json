@@ -39,7 +39,7 @@
     "dev": "ts-node src/index.ts",
     "generate": "node dist/index.js",
     "lint": "eslint . && tsc --noEmit",
-    "test:smoke": "node test/smoke.js && node test/advanced.js && node test/ai-providers.js && node test/windows-command.js",
+    "test:smoke": "node test/smoke.js && node test/advanced.js && node test/regression.js && node test/ai-providers.js && node test/windows-command.js",
     "test:e2e": "node test/e2e.js && node test/runner-windows.js",
     "test": "npm run build && npm run test:smoke && npm run test:e2e",
     "check": "npm run lint && npm test && npm audit --omit=dev",
@@ -48,13 +48,13 @@
   "dependencies": {
     "@apidevtools/swagger-parser": "^13.0.0",
     "js-yaml": "^5.4.1",
-    "openai": "^7.10.0",
+    "openai": "^7.12.1",
     "zod": "^4.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^26.4.1",
+    "@types/node": "^26.5.0",
     "eslint": "^10.10.0",
     "globals": "^17.12.0",
     "ts-node": "^10.9.2",

@@ -34,3 +34,28 @@ assert.equal(swagger2Collection.item[0].item.length, 1);
 assert.equal(swagger2Environment.values.find(v => v.key === 'baseUrl').value, 'http://localhost:3000/api');
 assert.ok(swagger2Environment.values.some(v => v.key === 'apiKey'));
 console.log('Swagger 2 smoke test passed');
+
+const profileConfigPath = path.join(outputDir, 'profiles.yaml');
+const profileCollectionPath = path.join(outputDir, 'profile.collection.json');
+const profileEnvironmentPath = path.join(outputDir, 'profile.environment.json');
+fs.writeFileSync(profileConfigPath, [
+  'variables:',
+  '  tenantId: shared',
+  'profiles:',
+  '  staging:',
+  '    baseUrl: https://staging.example.com/v2',
+  '    environmentName: Staging API',
+  '    variables:',
+  '      tenantId: staging-tenant',
+].join('\n'));
+execFileSync(process.execPath, [
+  path.resolve('dist/index.js'), '--spec', path.resolve('fixtures/petstore.openapi.yaml'),
+  '--config', profileConfigPath, '--profile', 'staging',
+  '--out', profileCollectionPath, '--env', profileEnvironmentPath,
+], { stdio: 'inherit' });
+const profileCollection = JSON.parse(fs.readFileSync(profileCollectionPath, 'utf8'));
+const profileEnvironment = JSON.parse(fs.readFileSync(profileEnvironmentPath, 'utf8'));
+assert.equal(profileCollection.variable.find(v => v.key === 'baseUrl').value, 'https://staging.example.com/v2');
+assert.equal(profileEnvironment.name, 'Staging API');
+assert.equal(profileEnvironment.values.find(v => v.key === 'tenantId').value, 'staging-tenant');
+console.log('Environment profile smoke test passed');

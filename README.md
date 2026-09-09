@@ -19,10 +19,12 @@ The core generator is deterministic. An optional AI planner uses structured mode
 - Bearer, Basic, OAuth token placeholders, API keys, and combined security requirements
 - Status-specific JSON Schema assertions and media-type-aware response handling
 - CRUD-oriented ordering with configurable operation order
-- Identifier extraction between dependent requests
+- Identifier extraction and target substitution between dependent requests
 - Optional missing-field, invalid-enum, boundary, and unauthorized cases
+- Named environment profiles and JSON/CSV iteration data
 - Safe mode that excludes `DELETE` operations
 - Newman execution with CLI, JSON, JUnit, and standalone HTML reports
+- Per-request HTML reporting with status, duration, and assertion counts
 - Provider-neutral AI planner with schema-validated output and fallback providers
 - Built-in OpenAI SDK, Codex CLI, Claude Code, and Antigravity CLI adapters
 - Safe custom-command adapter and a public provider registry for future integrations
@@ -78,6 +80,16 @@ node dist/index.js run \
 
 Or generate and run in one command by adding `--run`. The report directory contains `report.html`, `junit.xml`, and `newman.json`.
 
+Use a JSON or CSV data file for data-driven runs and optionally cap total runtime:
+
+```bash
+node dist/index.js run \
+  --collection ./generated/api.collection.json \
+  --iteration-data ./test-data.csv \
+  --run-timeout 300000 \
+  --bail
+```
+
 ## Optional AI planning
 
 The local CLI providers reuse the account session already established by their own login command. They do not require this project to store an API key.
@@ -123,7 +135,7 @@ node dist/index.js generate \
   --plan-out ./generated/agent-plan.json
 ```
 
-Every provider receives the same read-only planning prompt and must return the same schema-validated plan. Codex runs with a read-only sandbox and Claude runs in plan permission mode. The deterministic generator—not the AI provider—writes Postman scripts.
+Every provider receives the same read-only planning prompt and must return the same schema-validated plan. Codex runs with a read-only sandbox and Claude runs in plan permission mode. The deterministic generator—not the AI provider—writes Postman scripts. Planned operation ordering, variable mappings, target substitutions, and negative scenarios are all validated and applied by the generator.
 
 ### Add any command-based provider
 
@@ -164,6 +176,17 @@ variableMappings:
     variable: userId
     targetOperationIds: [getUser, deleteUser]
 disabledOperations: [chargeCreditCard]
+negativeScenarios:
+  - operationId: createUser
+    name: email is required
+    kind: missing_required
+    field: email
+profiles:
+  staging:
+    baseUrl: https://staging-api.example.com
+    environmentName: Staging API
+    variables:
+      tenantId: staging-tenant
 ai:
   provider: codex
   fallback: [claude, antigravity]
@@ -172,6 +195,8 @@ ai:
       type: codex
       command: codex
 ```
+
+Select a profile with `--profile staging`. Base variables are merged with profile variables, with profile values taking precedence. A login operation can bootstrap later authenticated requests by mapping its returned token to the security variable (for example, `bearerAuth_token`) and placing login first in `operationOrder`.
 
 ## Development
 
@@ -182,11 +207,11 @@ npm run check
 npm pack --dry-run
 ```
 
-The test suite includes Swagger 2.0 and OpenAPI 3.x smoke tests, advanced generator cases, provider contract and fallback tests, and runner/report integration tests. Newman remains an external runtime tool so its legacy transitive dependencies are not shipped to library consumers.
+The test suite includes Swagger 2.0 and OpenAPI 3.x smoke tests, regression tests, provider contract and fallback tests, a real local HTTP/Newman end-to-end run, and Windows runner tests. Newman remains an external runtime tool so its legacy transitive dependencies are not shipped to library consumers.
 
 ## Safety and limitations
 
-OpenAPI describes an HTTP contract, not every business prerequisite. Seed data, OTP flows, payment providers, asynchronous jobs, and environment-specific cleanup can still require configuration. Use `--safe` first against unfamiliar APIs, review generated requests, and never store secrets in committed environment files.
+OpenAPI describes an HTTP contract, not every business prerequisite. Seed data, OTP flows, payment providers, asynchronous jobs, and environment-specific cleanup can still require configuration. Use `--safe` first against unfamiliar APIs, review generated requests, and never store secrets in committed environment files. Enabling AI sends the summarized API contract to the selected provider; do not enable it for specifications that your provider is not authorized to process.
 
 ## License
 

@@ -2,7 +2,7 @@ import { exampleFor } from './generator/example';
 import { toJsonSchema } from './generator/json-schema';
 import { classifySecurityScheme } from './generator/security';
 import {
-  MediaType, OpenApiSpec, Operation, Parameter, PathItem, PostmanAuth,
+  MediaType, NegativeScenario, OpenApiSpec, Operation, Parameter, PathItem, PostmanAuth,
   PostmanBody, PostmanCollection, PostmanEnvironment, PostmanEvent, PostmanFormEntry,
   PostmanHeader, PostmanItem, PostmanQueryParam, PostmanUrl, PostmanVariable,
   Reference, RequestBody, Response, Schema, SecurityScheme, VariableMapping,
@@ -17,6 +17,7 @@ export interface GeneratorOptions {
   variables?: Record<string, string>;
   operationOrder?: string[];
   variableMappings?: VariableMapping[];
+  negativeScenarios?: NegativeScenario[];
   disabledOperations?: string[];
 }
 
@@ -40,6 +41,7 @@ export class OpenApiPostmanGenerator {
 
   generate(): PostmanCollection {
     const folders = new Map<string, PostmanItem[]>();
+    const orderedItems: PostmanItem[] = [];
     const entries: OperationEntry[] = [];
     let index = 0;
     for (const [route, pathItem] of Object.entries(this.spec.paths)) {
@@ -55,6 +57,12 @@ export class OpenApiPostmanGenerator {
     }
     for (const mapping of this.options.variableMappings || []) {
       if (!knownOperations.has(mapping.sourceOperationId)) this.warnings.push(`Variable mapping source was not found: ${mapping.sourceOperationId}`);
+      for (const target of mapping.targetOperationIds || []) {
+        if (!knownOperations.has(target)) this.warnings.push(`Variable mapping target was not found: ${target}`);
+      }
+    }
+    for (const scenario of this.options.negativeScenarios || []) {
+      if (!knownOperations.has(scenario.operationId)) this.warnings.push(`Negative scenario operation was not found: ${scenario.operationId}`);
     }
     for (const entry of this.sortEntries(entries)) {
       const id = this.operationId(entry.route, entry.method, entry.operation);
@@ -65,8 +73,10 @@ export class OpenApiPostmanGenerator {
       }
       const tag = entry.operation.tags?.[0] || 'Default';
       const items = folders.get(tag) || [];
-      items.push(this.generateItem(entry.route, entry.method, entry.pathItem, entry.operation));
-      if (this.options.includeNegative) items.push(...this.generateNegativeItems(entry));
+      const generated = [this.generateItem(entry.route, entry.method, entry.pathItem, entry.operation)];
+      if (this.options.includeNegative) generated.push(...this.generateNegativeItems(entry));
+      items.push(...generated);
+      orderedItems.push(...generated);
       folders.set(tag, items);
     }
     return {
@@ -75,7 +85,11 @@ export class OpenApiPostmanGenerator {
         description: this.spec.info.description,
         schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
       },
-      item: [...folders].map(([name, item]) => ({ name, item })),
+      // A configured workflow may alternate between tags. Top-level requests are
+      // required here because grouping them into tag folders changes execution order.
+      item: this.options.operationOrder?.length
+        ? orderedItems
+        : [...folders].map(([name, item]) => ({ name, item })),
       variable: [...this.variables.values()],
       auth: this.authFor(this.spec.security),
     };
@@ -85,34 +99,51 @@ export class OpenApiPostmanGenerator {
     const values: PostmanEnvironment['values'] = [
       { key: 'baseUrl', value: this.baseUrl, enabled: true, type: 'default' },
     ];
+    const add = (key: string, value: string, type: 'default' | 'secret'): void => {
+      const existing = values.find(item => item.key === key);
+      if (existing) { existing.value = value; existing.type = type; }
+      else values.push({ key, value, enabled: true, type });
+    };
+    for (const variable of this.variables.values()) {
+      if (variable.key !== 'baseUrl') add(variable.key, variable.value, 'default');
+    }
     for (const [key, scheme] of Object.entries(this.securitySchemes())) {
       const kind = classifySecurityScheme(scheme);
-      if (kind === 'apiKey') values.push({ key, value: '', enabled: true, type: 'secret' });
+      if (kind === 'apiKey') add(key, '', 'secret');
       if (kind === 'basic') {
-        values.push({ key: `${key}_username`, value: '', enabled: true, type: 'secret' });
-        values.push({ key: `${key}_password`, value: '', enabled: true, type: 'secret' });
+        add(`${key}_username`, '', 'secret');
+        add(`${key}_password`, '', 'secret');
       }
-      if (kind === 'bearer') values.push({ key: `${key}_token`, value: '', enabled: true, type: 'secret' });
+      if (kind === 'bearer') add(`${key}_token`, '', 'secret');
     }
     return { name, values, _postman_variable_scope: 'environment', _postman_exported_using: 'swagger-to-postman-agent' };
   }
 
   private generateItem(route: string, method: string, pathItem: PathItem, operation: Operation): PostmanItem {
     const params = this.mergeParameters(pathItem.parameters, operation.parameters);
+    const operationId = this.operationId(route, method, operation);
     const headers: PostmanHeader[] = [];
     const query: PostmanQueryParam[] = [];
     const cookies: string[] = [];
     let rawPath = route;
     for (const parameter of params) {
-      const example = this.parameterExample(parameter);
+      const mappedVariable = this.mappedVariableFor(operationId, parameter.name);
+      const example = mappedVariable ? `{{${mappedVariable}}}` : this.parameterExample(parameter);
       const value = this.serializeParameter(parameter, example);
       if (parameter.in === 'path') {
-        this.addVariable(parameter.name, value, parameter.description || `Path parameter: ${parameter.name}`);
-        rawPath = rawPath.replace(`{${parameter.name}}`, `{{${parameter.name}}}`);
+        const variableName = mappedVariable || parameter.name;
+        this.addVariable(variableName, mappedVariable ? '' : value, parameter.description || `Path parameter: ${parameter.name}`);
+        rawPath = rawPath.replace(`{${parameter.name}}`, `{{${variableName}}}`);
       } else if (parameter.in === 'query') {
         if (parameter.style === 'deepObject' && example && typeof example === 'object' && !Array.isArray(example)) {
           for (const [key, child] of Object.entries(example as Record<string, unknown>)) {
             query.push({ key: `${parameter.name}[${key}]`, value: String(child), description: parameter.description, disabled: !parameter.required });
+          }
+        } else if (Array.isArray(example) && (parameter.explode ?? (parameter.style === undefined || parameter.style === 'form'))) {
+          for (const child of example) query.push({ key: parameter.name, value: String(child), description: parameter.description, disabled: !parameter.required });
+        } else if (example && typeof example === 'object' && !Array.isArray(example) && (parameter.explode ?? true)) {
+          for (const [key, child] of Object.entries(example as Record<string, unknown>)) {
+            query.push({ key, value: String(child), description: parameter.description, disabled: !parameter.required });
           }
         } else {
           query.push({ key: parameter.name, value, description: parameter.description, disabled: !parameter.required });
@@ -124,7 +155,7 @@ export class OpenApiPostmanGenerator {
       }
     }
     if (cookies.length) headers.push({ key: 'Cookie', value: cookies.join('; ') });
-    const body = this.generateBody(operation, params, headers);
+    const body = this.generateBody(operation, params, headers, operationId);
     if (!headers.some(header => header.key.toLowerCase() === 'accept')) {
       headers.push({ key: 'Accept', value: this.preferredResponseType(operation) });
     }
@@ -149,7 +180,7 @@ export class OpenApiPostmanGenerator {
     };
   }
 
-  private generateBody(operation: Operation, params: Parameter[], headers: PostmanHeader[]): PostmanBody | undefined {
+  private generateBody(operation: Operation, params: Parameter[], headers: PostmanHeader[], operationId: string): PostmanBody | undefined {
     const swaggerBody = params.find(p => p.in === 'body');
     const formParams = params.filter(p => p.in === 'formData');
     if (formParams.length) {
@@ -183,7 +214,10 @@ export class OpenApiPostmanGenerator {
         ? { mode: 'formdata', formdata: entries }
         : { mode: 'urlencoded', urlencoded: entries };
     }
-    const example = media?.example ?? this.firstNamedExample(media) ?? exampleFor(schema!, this.resolveSchema);
+    let example = media?.example ?? this.firstNamedExample(media) ?? exampleFor(schema!, this.resolveSchema);
+    if (example && typeof example === 'object' && !Array.isArray(example)) {
+      example = this.applyMappingsToBody(example as Record<string, unknown>, operationId);
+    }
     contentType ||= 'application/json';
     headers.push({ key: 'Content-Type', value: contentType });
     headers.push({ key: 'Accept', value: (operation.produces || this.spec.produces || ['application/json'])[0] });
@@ -192,8 +226,9 @@ export class OpenApiPostmanGenerator {
   }
 
   private generateTests(route: string, operation: Operation, method: string): PostmanEvent {
-    const successEntries = Object.entries(operation.responses).filter(([code]) => /^2\d\d$/.test(code));
-    const allowed = successEntries.map(([code]) => Number(code));
+    const successEntries = Object.entries(operation.responses).filter(([code]) => /^2(?:\d\d|XX)$/i.test(code));
+    const allowed = successEntries.filter(([code]) => /^2\d\d$/.test(code)).map(([code]) => Number(code));
+    const hasWildcard = successEntries.some(([code]) => /^2XX$/i.test(code));
     const codes = allowed.length ? allowed : [200, 201, 202, 204];
     const responseDefinitions = Object.fromEntries(successEntries.map(([code, value]) => {
       const response = this.resolve<Response>(value);
@@ -202,15 +237,17 @@ export class OpenApiPostmanGenerator {
       return [code, { contentType, schema: schema ? toJsonSchema(schema, this.resolveSchema) : null }];
     }));
     const lines = [
-      `pm.test("Status code is successful (${codes.join(', ')})", function () {`,
-      `  pm.expect(pm.response.code).to.be.oneOf(${JSON.stringify(codes)});`,
+      `pm.test("Status code is successful (${hasWildcard ? '2XX' : codes.join(', ')})", function () {`,
+      hasWildcard
+        ? '  pm.expect(pm.response.code).to.be.within(200, 299);'
+        : `  pm.expect(pm.response.code).to.be.oneOf(${JSON.stringify(codes)});`,
       '});', '',
       `pm.test("Response time is below ${this.responseTimeMs}ms", function () {`,
       `  pm.expect(pm.response.responseTime).to.be.below(${this.responseTimeMs});`,
       '});',
     ];
     lines.push('', `const responseDefinitions = ${JSON.stringify(responseDefinitions)};`,
-      'const responseDefinition = responseDefinitions[String(pm.response.code)];',
+      'const responseDefinition = responseDefinitions[String(pm.response.code)] || responseDefinitions["2XX"] || responseDefinitions["2xx"];',
       'if (responseDefinition && pm.response.code !== 204) {',
       '  const declaredType = responseDefinition.contentType || "";',
       '  if (declaredType.includes("json")) {',
@@ -229,9 +266,9 @@ export class OpenApiPostmanGenerator {
       '  }',
       '}',
     );
-    if (method === 'POST') {
-      const operationId = this.operationId(route, method, operation);
-      const mappings = (this.options.variableMappings || []).filter(mapping => mapping.sourceOperationId === operationId);
+    const operationId = this.operationId(route, method, operation);
+    const mappings = (this.options.variableMappings || []).filter(mapping => mapping.sourceOperationId === operationId);
+    if (method === 'POST' || mappings.length) {
       lines.push('', '// Persist common identifiers so later requests can reuse them.',
         'if (pm.response.code >= 200 && pm.response.code < 300 && pm.response.text()) {',
         '  let data; try { data = pm.response.json(); } catch (_) {}',
@@ -241,7 +278,11 @@ export class OpenApiPostmanGenerator {
       );
       if (mappings.length) {
         lines.push(`  const mappings = ${JSON.stringify(mappings)};`,
-          '  const getPath = (value, jsonPath) => jsonPath.replace(/^\\$\\.?/, "").split(".").filter(Boolean).reduce((current, key) => current == null ? undefined : current[key], value);',
+          '  const getPath = (value, jsonPath) => {',
+          '    const tokens = [];',
+          '    jsonPath.replace(/^\\$\\.?/, "").replace(/\\[([0-9]+)|[\\x27"]([^\\x27"]+)[\\x27"]\\]|([^.\\[\\]]+)/g, (_, index, quoted, plain) => { tokens.push(index !== undefined ? Number(index) : quoted || plain); return ""; });',
+          '    return tokens.reduce((current, key) => current == null ? undefined : current[key], value);',
+          '  };',
           '  mappings.forEach(mapping => {',
           '    const value = getPath(data, mapping.responseJsonPath);',
           '    if (value !== undefined) pm.collectionVariables.set(mapping.variable, value);',
@@ -269,17 +310,10 @@ export class OpenApiPostmanGenerator {
   private authFor(requirements?: Array<Record<string, string[]>>): PostmanAuth | undefined {
     if (!requirements || requirements.length === 0) return undefined;
     const names = Object.keys(requirements[0]);
-    const name = names.find(candidate => classifySecurityScheme(this.securitySchemes()[candidate]) !== 'apiKey') || names[0];
+    const name = names.find(candidate => classifySecurityScheme(this.securitySchemes()[candidate]) !== 'apiKey');
     if (!name) return undefined;
     const scheme = this.securitySchemes()[name];
     const kind = classifySecurityScheme(scheme);
-    if (kind === 'apiKey') return {
-      type: 'apikey', apikey: [
-        { key: 'key', value: scheme.name || name, type: 'string' },
-        { key: 'value', value: `{{${name}}}`, type: 'string' },
-        { key: 'in', value: scheme.in || 'header', type: 'string' },
-      ],
-    };
     if (kind === 'basic') return {
       type: 'basic', basic: [
         { key: 'username', value: `{{${name}_username}}`, type: 'string' },
@@ -303,8 +337,39 @@ export class OpenApiPostmanGenerator {
 
   private parameterExample(p: Parameter): unknown {
     if (p.example !== undefined) return p.example;
-    const schema: Schema = p.schema || { type: p.type, format: p.format, items: p.items, default: p.default, enum: p.enum };
+    const namedExample = p.examples && Object.values(p.examples)[0]?.value;
+    if (namedExample !== undefined) return namedExample;
+    const media = p.content && p.content[this.preferredContentType(p.content)];
+    if (media?.example !== undefined) return media.example;
+    const mediaNamedExample = this.firstNamedExample(media);
+    if (mediaNamedExample !== undefined) return mediaNamedExample;
+    const schema: Schema = media?.schema || p.schema || { type: p.type, format: p.format, items: p.items, default: p.default, enum: p.enum };
     return exampleFor(schema, this.resolveSchema);
+  }
+
+  private mappedVariableFor(operationId: string, field: string): string | undefined {
+    const candidates = (this.options.variableMappings || []).filter(mapping =>
+      mapping.targetOperationIds?.includes(operationId),
+    );
+    if (!candidates.length) return undefined;
+    const normalizedField = field.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const exact = candidates.find(mapping => {
+      const variable = mapping.variable.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const leaf = mapping.responseJsonPath.match(/(?:\.|\[['"]?)([A-Za-z0-9_-]+)['"]?\]?$/)?.[1]
+        ?.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return variable === normalizedField || leaf === normalizedField || variable.endsWith(normalizedField);
+    });
+    if (exact) return exact.variable;
+    return candidates.length === 1 ? candidates[0].variable : undefined;
+  }
+
+  private applyMappingsToBody(data: Record<string, unknown>, operationId: string): Record<string, unknown> {
+    const output = structuredClone(data);
+    for (const key of Object.keys(output)) {
+      const variable = this.mappedVariableFor(operationId, key);
+      if (variable) output[key] = `{{${variable}}}`;
+    }
+    return output;
   }
 
   private serializeParameter(parameter: Parameter, value: unknown): string {
@@ -346,10 +411,20 @@ export class OpenApiPostmanGenerator {
     const output: PostmanItem[] = [];
     const positive = this.generateItem(entry.route, entry.method, entry.pathItem, entry.operation);
     const operationId = this.operationId(entry.route, entry.method, entry.operation);
+    const explicitPlan = Boolean(this.options.negativeScenarios?.length);
+    const planned = (this.options.negativeScenarios || []).filter(scenario => scenario.operationId === operationId);
+    if (explicitPlan && !planned.length) return output;
+    const requested = (kind: NegativeScenario['kind']): NegativeScenario[] => explicitPlan
+      ? planned.filter(scenario => scenario.kind === kind)
+      : [{ operationId, name: kind, kind }];
     const security = entry.operation.security === undefined ? this.spec.security : entry.operation.security;
-    if (security?.length) {
+    for (const scenario of requested('unauthorized')) {
+      if (!security?.length) {
+        if (explicitPlan) this.warnings.push(`Could not generate unauthorized test for unsecured operation: ${operationId}`);
+        continue;
+      }
       const unauthorized = structuredClone(positive);
-      unauthorized.name = `[Negative] ${positive.name} - unauthorized`;
+      unauthorized.name = `[Negative] ${positive.name} - ${explicitPlan ? scenario.name : 'unauthorized'}`;
       if (unauthorized.request) {
         unauthorized.request.auth = { type: 'noauth' };
         const schemes = Object.keys(security[0]).map(name => ({ name, scheme: this.securitySchemes()[name] }));
@@ -365,16 +440,29 @@ export class OpenApiPostmanGenerator {
     }
 
     // Clones `positive`, mutates its raw JSON body, and pushes the variant; silently
-    // skips non-JSON bodies and records a warning if the body cannot be parsed.
+    // records a warning if the body cannot be parsed or represented.
     const buildVariant = (name: string, warnLabel: string, mutate: (data: Record<string, unknown>) => void, event?: PostmanEvent): void => {
-      if (positive.request?.body?.mode !== 'raw') return;
+      if (!positive.request?.body) {
+        if (explicitPlan) this.warnings.push(`Could not generate ${warnLabel} test without a supported request body for ${operationId}`);
+        return;
+      }
       const clone = structuredClone(positive);
       clone.name = name;
-      const body = clone.request!.body as Extract<PostmanBody, { mode: 'raw' }>;
       try {
-        const data = JSON.parse(body.raw) as Record<string, unknown>;
-        mutate(data);
-        body.raw = JSON.stringify(data, null, 2);
+        const body = clone.request!.body!;
+        if (body.mode === 'raw') {
+          const data = JSON.parse(body.raw) as Record<string, unknown>;
+          mutate(data);
+          body.raw = JSON.stringify(data, null, 2);
+        } else {
+          const entries = body.mode === 'formdata' ? body.formdata : body.urlencoded;
+          const data = Object.fromEntries(entries.map(item => [item.key, item.value]));
+          mutate(data);
+          const next = entries.filter(item => Object.prototype.hasOwnProperty.call(data, item.key));
+          for (const item of next) item.value = String(data[item.key] ?? '');
+          if (body.mode === 'formdata') body.formdata = next;
+          else body.urlencoded = next;
+        }
         if (event) clone.event = [event];
         output.push(clone);
       } catch {
@@ -384,42 +472,165 @@ export class OpenApiPostmanGenerator {
 
     const requestSchema = this.requestSchema(entry.operation, this.mergeParameters(entry.pathItem.parameters, entry.operation.parameters));
     const resolved = requestSchema ? this.resolvedSchema(requestSchema) : undefined;
+    const parameters = this.mergeParameters(entry.pathItem.parameters, entry.operation.parameters);
 
-    const requiredField = resolved?.required?.[0];
-    if (requiredField) {
+    for (const scenario of requested('missing_required')) {
+      const requiredField = scenario.field || resolved?.required?.[0];
+      if (!requiredField || !resolved?.required?.includes(requiredField)) {
+        const parameter = parameters.find(item => item.required && (!scenario.field || item.name === scenario.field));
+        if (parameter) {
+          const variant = this.parameterNegativeVariant(positive, operationId, parameter,
+            explicitPlan ? scenario.name : `missing ${parameter.name}`, undefined, true,
+            this.negativeTest(`Missing required parameter '${parameter.name}' is rejected`, this.negativeCodes(entry.operation, [400, 404, 422])));
+          if (variant) output.push(variant);
+          continue;
+        }
+        if (explicitPlan) this.warnings.push(`Required field was not found for negative scenario on ${operationId}: ${scenario.field || '(unspecified)'}`);
+        continue;
+      }
       buildVariant(
-        `[Negative] ${positive.name} - missing ${requiredField}`,
+        `[Negative] ${positive.name} - ${explicitPlan ? scenario.name : `missing ${requiredField}`}`,
         'missing-field',
         data => { delete data[requiredField]; },
         this.negativeTest(`Missing required field '${requiredField}' is rejected`, this.negativeCodes(entry.operation, [400, 422])),
       );
     }
 
-    const enumField = Object.entries(resolved?.properties || {}).find(([, schema]) => schema.enum?.length)?.[0];
-    if (enumField) {
+    for (const scenario of requested('invalid_enum')) {
+      const enumField = scenario.field || Object.entries(resolved?.properties || {}).find(([, schema]) => schema.enum?.length)?.[0];
+      if (!enumField || !resolved?.properties?.[enumField]?.enum?.length) {
+        const parameter = parameters.find(item => {
+          const schema = this.parameterSchema(item);
+          return (!scenario.field || item.name === scenario.field) && Boolean(schema.enum?.length);
+        });
+        if (parameter) {
+          const variant = this.parameterNegativeVariant(positive, operationId, parameter,
+            explicitPlan ? scenario.name : `invalid ${parameter.name}`, '__invalid_enum__', false,
+            this.negativeTest(`Invalid enum value for '${parameter.name}' is rejected`, this.negativeCodes(entry.operation, [400, 422])));
+          if (variant) output.push(variant);
+          continue;
+        }
+        if (explicitPlan) this.warnings.push(`Enum field was not found for negative scenario on ${operationId}: ${scenario.field || '(unspecified)'}`);
+        continue;
+      }
       buildVariant(
-        `[Negative] ${positive.name} - invalid ${enumField}`,
+        `[Negative] ${positive.name} - ${explicitPlan ? scenario.name : `invalid ${enumField}`}`,
         'invalid-enum',
         data => { data[enumField] = '__invalid_enum__'; },
         this.negativeTest(`Invalid enum value for '${enumField}' is rejected`, this.negativeCodes(entry.operation, [400, 422])),
       );
     }
 
-    const boundaryField = Object.entries(resolved?.properties || {}).find(([, schema]) =>
-      schema.minimum !== undefined || schema.maximum !== undefined || schema.minLength !== undefined || schema.maxLength !== undefined,
-    );
-    if (boundaryField) {
+    for (const scenario of requested('boundary')) {
+      const boundaryField = scenario.field && resolved?.properties?.[scenario.field]
+        ? [scenario.field, resolved.properties[scenario.field]] as const
+        : Object.entries(resolved?.properties || {}).find(([, schema]) =>
+          schema.minimum !== undefined || schema.maximum !== undefined || schema.minLength !== undefined || schema.maxLength !== undefined,
+        );
+      if (!boundaryField) {
+        const parameter = parameters.find(item => {
+          const schema = this.parameterSchema(item);
+          return (!scenario.field || item.name === scenario.field) && this.hasBoundary(schema);
+        });
+        if (parameter) {
+          const variant = this.parameterNegativeVariant(positive, operationId, parameter,
+            explicitPlan ? scenario.name : `out-of-range ${parameter.name}`, this.invalidBoundaryValue(this.parameterSchema(parameter)), false,
+            this.negativeTest(`Out-of-range value for '${parameter.name}' is rejected`, this.negativeCodes(entry.operation, [400, 404, 422])));
+          if (variant) output.push(variant);
+          continue;
+        }
+        if (explicitPlan) this.warnings.push(`Boundary field was not found for negative scenario on ${operationId}: ${scenario.field || '(unspecified)'}`);
+        continue;
+      }
       const [field, fieldSchema] = boundaryField;
       buildVariant(
-        `[Boundary] ${positive.name} - ${field}`,
+        `[Negative] ${positive.name} - ${explicitPlan ? scenario.name : `out-of-range ${field}`}`,
         'boundary',
-        data => {
-          data[field] = fieldSchema.minimum ?? fieldSchema.maximum
-            ?? (fieldSchema.minLength !== undefined ? 'x'.repeat(fieldSchema.minLength) : 'x'.repeat(fieldSchema.maxLength || 1));
-        },
+        data => { data[field] = this.invalidBoundaryValue(fieldSchema); },
+        this.negativeTest(`Out-of-range value for '${field}' is rejected`, this.negativeCodes(entry.operation, [400, 422])),
       );
     }
     return output;
+  }
+
+  private invalidBoundaryValue(schema: Schema): unknown {
+    const step = schema.multipleOf || 1;
+    if (schema.minimum !== undefined) return schema.minimum - step;
+    if (schema.maximum !== undefined) return schema.maximum + step;
+    if (schema.minLength !== undefined) return 'x'.repeat(Math.max(0, schema.minLength - 1));
+    if (schema.maxLength !== undefined) return 'x'.repeat(schema.maxLength + 1);
+    return null;
+  }
+
+  private hasBoundary(schema: Schema): boolean {
+    return schema.minimum !== undefined || schema.maximum !== undefined
+      || schema.minLength !== undefined || schema.maxLength !== undefined;
+  }
+
+  private parameterSchema(parameter: Parameter): Schema {
+    return this.resolvedSchema(parameter.schema || {
+      type: parameter.type, format: parameter.format, items: parameter.items,
+      default: parameter.default, enum: parameter.enum,
+    });
+  }
+
+  private parameterNegativeVariant(
+    positive: PostmanItem,
+    operationId: string,
+    parameter: Parameter,
+    label: string,
+    value: unknown,
+    remove: boolean,
+    event: PostmanEvent,
+  ): PostmanItem | undefined {
+    const clone = structuredClone(positive);
+    const request = clone.request;
+    if (!request) return undefined;
+    clone.name = `[Negative] ${positive.name} - ${label}`;
+    const replacement = String(value ?? '');
+    let changed = false;
+    if (parameter.in === 'query' && request.url.query) {
+      const matches = (key: string): boolean => key === parameter.name || key.startsWith(`${parameter.name}[`);
+      if (remove) request.url.query = request.url.query.filter(item => !matches(item.key));
+      else {
+        const item = request.url.query.find(query => matches(query.key));
+        if (item) item.value = replacement;
+      }
+      changed = true;
+    } else if (parameter.in === 'header') {
+      if (remove) request.header = request.header.filter(item => item.key.toLowerCase() !== parameter.name.toLowerCase());
+      else {
+        const item = request.header.find(header => header.key.toLowerCase() === parameter.name.toLowerCase());
+        if (item) item.value = replacement;
+      }
+      changed = true;
+    } else if (parameter.in === 'cookie') {
+      const cookie = request.header.find(header => header.key.toLowerCase() === 'cookie');
+      if (cookie) {
+        const parts = cookie.value.split(';').map(part => part.trim()).filter(part => !part.startsWith(`${parameter.name}=`));
+        if (!remove) parts.push(`${parameter.name}=${replacement}`);
+        cookie.value = parts.join('; ');
+        changed = true;
+      }
+    } else if (parameter.in === 'path') {
+      const variable = this.mappedVariableFor(operationId, parameter.name) || parameter.name;
+      request.url.raw = request.url.raw.replace(`{{${variable}}}`, replacement);
+      request.url.path = request.url.path.map(segment => segment === `{{${variable}}}` ? replacement : segment);
+      changed = true;
+    } else if (parameter.in === 'formData' && request.body && request.body.mode !== 'raw') {
+      const entries = request.body.mode === 'formdata' ? request.body.formdata : request.body.urlencoded;
+      if (remove) {
+        if (request.body.mode === 'formdata') request.body.formdata = entries.filter(item => item.key !== parameter.name);
+        else request.body.urlencoded = entries.filter(item => item.key !== parameter.name);
+      } else {
+        const item = entries.find(entry => entry.key === parameter.name);
+        if (item) item.value = replacement;
+      }
+      changed = true;
+    }
+    if (!changed) return undefined;
+    clone.event = [event];
+    return clone;
   }
 
   private negativeCodes(operation: Operation, fallback: number[]): number[] {
@@ -464,20 +675,35 @@ export class OpenApiPostmanGenerator {
   ): void {
     if (!requirements?.[0]) return;
     const names = Object.keys(requirements[0]);
-    if (names.length < 2) return;
     for (const name of names) {
       const scheme = this.securitySchemes()[name];
       if (classifySecurityScheme(scheme) !== 'apiKey') continue;
       const value = `{{${name}}}`;
-      if (scheme.in === 'query') query.push({ key: scheme.name || name, value });
-      else if (scheme.in === 'cookie') headers.push({ key: 'Cookie', value: `${scheme.name || name}=${value}` });
-      else headers.push({ key: scheme.name || name, value });
+      const key = scheme.name || name;
+      if (scheme.in === 'query') {
+        const existing = query.find(item => item.key === key);
+        if (existing) { existing.value = value; existing.disabled = false; }
+        else query.push({ key, value });
+      }
+      else if (scheme.in === 'cookie') {
+        const cookie = headers.find(header => header.key.toLowerCase() === 'cookie');
+        if (cookie) {
+          const parts = cookie.value.split(';').map(part => part.trim()).filter(part => !part.startsWith(`${key}=`));
+          cookie.value = [...parts, `${key}=${value}`].join('; ');
+        }
+        else headers.push({ key: 'Cookie', value: `${key}=${value}` });
+      }
+      else {
+        const existing = headers.find(header => header.key.toLowerCase() === key.toLowerCase());
+        if (existing) { existing.value = value; existing.disabled = false; }
+        else headers.push({ key, value });
+      }
     }
   }
 
   private preferredResponseType(operation: Operation): string {
     for (const [status, responseValue] of Object.entries(operation.responses)) {
-      if (!/^2\d\d$/.test(status)) continue;
+      if (!/^2(?:\d\d|XX)$/i.test(status)) continue;
       return this.responseContentType(this.resolve<Response>(responseValue), operation);
     }
     return (operation.produces || this.spec.produces || ['application/json'])[0];

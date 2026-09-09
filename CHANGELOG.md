@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Preserved configured/AI workflow order across tags and applied response mappings to target path, query, header, and top-level body fields.
+- Added array/bracket JSONPath extraction and support for mapping sources using any HTTP method.
+- Applied AI-planned negative scenarios and changed boundary negatives to genuinely out-of-range values.
+- Added strict Zod validation for project configuration, named environment profiles, iteration data, runner timeouts, and `generate --run --bail` support.
+- Added OpenAPI `2XX` responses, named parameter examples, repeated query parameters, API-key cookies, combined security handling, and more JSON Schema keywords.
+- Prevented stale Newman reports from masking failed invocations, closed stdin for Windows npm PowerShell shims, and added request-level HTML reporting.
+- Replaced the synthetic runner check with a real local HTTP/Newman end-to-end test and expanded regression coverage.
+- Updated the OpenAI SDK and Node.js type definitions without adding Newman's vulnerable legacy dependency tree to the published package.
+
 ## 0.3.1 - 2026-09-08
 
 - Fixed `openapi-postman run` crashing with `EINVAL` on Windows: `execFile()` cannot spawn a `.cmd` file directly without `shell: true`, so newman is now launched through the same safe Windows shim resolution used by the AI CLI providers.

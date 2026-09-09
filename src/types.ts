@@ -66,7 +66,7 @@ export interface RequestBody { description?: string; required?: boolean; content
 export interface MediaType { schema?: Schema; example?: unknown; examples?: Record<string, { value?: unknown }> }
 
 export interface Schema {
-  type?: string;
+  type?: string | string[];
   format?: string;
   title?: string;
   description?: string;
@@ -87,6 +87,9 @@ export interface Schema {
   minItems?: number;
   maxItems?: number;
   uniqueItems?: boolean;
+  minProperties?: number;
+  maxProperties?: number;
+  const?: unknown;
   multipleOf?: number;
   exclusiveMinimum?: boolean | number;
   exclusiveMaximum?: boolean | number;
@@ -148,15 +151,17 @@ export interface VariableMapping {
   targetOperationIds?: string[];
 }
 
+export interface NegativeScenario {
+  operationId: string;
+  name: string;
+  kind: 'missing_required' | 'boundary' | 'invalid_enum' | 'unauthorized';
+  field?: string | null;
+}
+
 export interface AgentPlan {
   operationOrder: string[];
   variableMappings: VariableMapping[];
-  negativeScenarios: Array<{
-    operationId: string;
-    name: string;
-    kind: 'missing_required' | 'boundary' | 'invalid_enum' | 'unauthorized';
-    field?: string | null;
-  }>;
+  negativeScenarios: NegativeScenario[];
   warnings: string[];
 }
 
@@ -189,7 +194,13 @@ export interface ProjectConfig {
   variables?: Record<string, string>;
   operationOrder?: string[];
   variableMappings?: VariableMapping[];
+  negativeScenarios?: NegativeScenario[];
   disabledOperations?: string[];
+  profiles?: Record<string, {
+    baseUrl?: string;
+    variables?: Record<string, string>;
+    environmentName?: string;
+  }>;
   ai?: AiConfig;
 }
 export interface PostmanEnvironment {
