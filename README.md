@@ -18,6 +18,8 @@ The core generator is deterministic. An optional AI planner uses structured mode
 - Path, query, header, cookie, array, and deep-object parameters
 - Bearer, Basic, OAuth token placeholders, API keys, and combined security requirements
 - Status-specific JSON Schema assertions and media-type-aware response handling
+- Response assertions respect write-only fields; generated authentication variables retain configured values.
+- Synthesized examples are checked against supported type, numeric, string, array, object, and composition constraints. Unsupported synthesis or conflicting constraints produce an error; provide a valid explicit example for complex patterns, formats, or uniqueness constraints. This is a bounded generator, not a complete JSON Schema validator.
 - CRUD-oriented ordering with configurable operation order
 - Identifier extraction and target substitution between dependent requests
 - Optional missing-field, invalid-enum, boundary, and unauthorized cases
