@@ -101,7 +101,10 @@ export class OpenApiPostmanGenerator {
     ];
     const add = (key: string, value: string, type: 'default' | 'secret'): void => {
       const existing = values.find(item => item.key === key);
-      if (existing) { existing.value = value; existing.type = type; }
+      if (existing) {
+        if (type !== 'secret') existing.value = value;
+        existing.type = type;
+      }
       else values.push({ key, value, enabled: true, type });
     };
     for (const variable of this.variables.values()) {
