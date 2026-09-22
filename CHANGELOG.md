@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-09-22
+
+- Generate and validate examples against supported schema constraints; invalid defaults, contradictory compositions, and unsupported synthesis now fail explicitly. Provide valid explicit examples for unsupported synthesis.
+- Remove write-only fields and their requirements from response assertions, including referenced and composed schemas.
+- Preserve configured authentication values while marking environment variables secret.
+- Verify the packed npm artifact by installing it in a clean consumer and exercising CLI, library exports, and TypeScript declarations.
 
 - Preserved configured/AI workflow order across tags and applied response mappings to target path, query, header, and top-level body fields.
 - Added array/bracket JSONPath extraction and support for mapping sources using any HTTP method.

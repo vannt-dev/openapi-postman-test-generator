@@ -39,7 +39,37 @@ The core generator is deterministic. An optional AI planner uses structured mode
 - An authenticated provider CLI when using Codex, Claude, or Antigravity
 - `OPENAI_API_KEY` only when the OpenAI SDK provider is selected
 
-## Install and build
+## Install
+
+Install the published CLI (Node.js 20 or newer):
+
+```bash
+npm install --global openapi-postman-test-generator@0.4.0
+openapi-postman --help
+openapi-postman generate --spec ./openapi.yaml --out ./collection.json --env ./environment.json
+```
+
+Upgrade with the same install command. Version 0.4.0 rejects invalid defaults, conflicting
+schema constraints, and unsupported example synthesis. Supply valid explicit examples where
+synthesis is unsupported; see [release notes](CHANGELOG.md).
+
+For use as a library:
+
+```bash
+npm install openapi-postman-test-generator@0.4.0
+```
+
+```javascript
+const { OpenApiPostmanGenerator } = require('openapi-postman-test-generator');
+const spec = require('./openapi.json'); // Parsed, resolved OpenAPI document.
+const generator = new OpenApiPostmanGenerator(spec);
+const collection = generator.generate();
+```
+
+TypeScript declarations are included. Newman and authenticated AI providers are optional
+external tools; deterministic collection generation does not need them.
+
+## Build from source
 
 ```bash
 npm install
