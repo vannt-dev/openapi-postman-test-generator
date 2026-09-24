@@ -44,19 +44,20 @@ The core generator is deterministic. An optional AI planner uses structured mode
 Install the published CLI (Node.js 22 or newer):
 
 ```bash
-npm install --global openapi-postman-test-generator@0.4.0
+npm install --global openapi-postman-test-generator@0.5.0
 openapi-postman --help
 openapi-postman generate --spec ./openapi.yaml --out ./collection.json --env ./environment.json
 ```
 
-Upgrade with the same install command. Version 0.4.0 rejects invalid defaults, conflicting
-schema constraints, and unsupported example synthesis. Supply valid explicit examples where
-synthesis is unsupported; see [release notes](CHANGELOG.md).
+Upgrade with the same install command. Version 0.5.0 requires Node.js 22, keeps generated response
+schema assertions valid for Newman (OpenAPI-only formats such as `int64` no longer fail every
+response), and fixes boundary negatives and `Accept` headers. Regenerate existing collections to
+pick up the changes; see [release notes](CHANGELOG.md).
 
 For use as a library:
 
 ```bash
-npm install openapi-postman-test-generator@0.4.0
+npm install openapi-postman-test-generator@0.5.0
 ```
 
 ```javascript

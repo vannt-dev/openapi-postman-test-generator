@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 - 2026-09-24
 
 - Require Node.js 22 or newer; Node.js 20 reached end of life on 2026-04-30. CI tests Node.js 22 and 24.
 - Update dependencies within their ranges: `@apidevtools/swagger-parser` 13.1.0, `openai` 7.23.0, `zod` 4.6.5, `js-yaml` 5.4.2, and lint tooling.
