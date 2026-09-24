@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/vannt-dev/openapi-postman-test-generator/actions/workflows/ci.yml/badge.svg)](https://github.com/vannt-dev/openapi-postman-test-generator/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933.svg)](https://nodejs.org/)
+[![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933.svg)](https://nodejs.org/)
 [![npm](https://img.shields.io/npm/v/openapi-postman-test-generator.svg)](https://www.npmjs.com/package/openapi-postman-test-generator)
 
 **[View the project landing page →](https://vannt-dev.github.io/openapi-postman-test-generator/)**
@@ -33,7 +33,7 @@ The core generator is deterministic. An optional AI planner uses structured mode
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 22 or newer
 - A Swagger 2.0 or OpenAPI 3.x document
 - Newman available on `PATH` when running generated collections (`npm install --global newman`)
 - An authenticated provider CLI when using Codex, Claude, or Antigravity
@@ -41,7 +41,7 @@ The core generator is deterministic. An optional AI planner uses structured mode
 
 ## Install
 
-Install the published CLI (Node.js 20 or newer):
+Install the published CLI (Node.js 22 or newer):
 
 ```bash
 npm install --global openapi-postman-test-generator@0.4.0

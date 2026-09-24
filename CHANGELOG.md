@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Require Node.js 22 or newer; Node.js 20 reached end of life on 2026-04-30. CI tests Node.js 22 and 24.
+- Update dependencies within their ranges: `@apidevtools/swagger-parser` 13.1.0, `openai` 7.23.0, `zod` 4.6.5, `js-yaml` 5.4.2, and lint tooling.
+
 - Keep response schema assertions valid for Newman/Ajv: drop OpenAPI-only formats such as `int64` and `double`, convert OAS 3.0 boolean `exclusiveMinimum`/`exclusiveMaximum`, and allow `null` in nullable enums. Previously these schemas failed every matching response.
 - Generate boundary negatives only for violable bounds (`minLength: 0` no longer sends a valid empty string) and honor exclusive bounds.
 - Send the declared response media type in `Accept` for requests with a body.
