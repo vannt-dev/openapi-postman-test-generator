@@ -86,6 +86,9 @@ export const defaultCommandExecutor: CommandExecutor = (request) => new Promise(
     }
     target.push(chunk);
   };
+  // A command may exit before reading the whole prompt. The resulting EPIPE/EOF would
+  // otherwise be an uncaught exception; its exit status is reported by 'close'.
+  child.stdin.on('error', () => undefined);
   child.stdout.on('data', collect(stdout));
   child.stderr.on('data', collect(stderr));
   child.on('error', (error: NodeJS.ErrnoException) => {

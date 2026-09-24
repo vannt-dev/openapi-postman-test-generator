@@ -15,6 +15,11 @@ async function main() {
       response.end(JSON.stringify({ id: 'item-1' }));
       return;
     }
+    if (request.method === 'GET' && request.url === '/metrics') {
+      response.writeHead(200);
+      response.end(JSON.stringify({ count: 5, ratio: 0.5, state: null }));
+      return;
+    }
     if (request.method === 'GET' && request.url === '/items/item-1') {
       response.writeHead(200);
       response.end(JSON.stringify({ id: 'item-1', name: 'Test item' }));
@@ -39,11 +44,19 @@ async function main() {
       servers: [{ url: `http://127.0.0.1:${address.port}` }],
       paths: {
         '/items': { post: { operationId: 'createItem', tags: ['Items'], responses: { 201: { description: 'Created', content: { 'application/json': { schema: responseSchema } } } } } },
+        // OAS-only formats, boolean exclusive bounds and nullable enums must stay valid for Newman's Ajv.
+        '/metrics': { get: { operationId: 'getMetrics', tags: ['Items'], responses: { 200: { description: 'Metrics', content: { 'application/json': { schema: {
+          type: 'object', required: ['count'], properties: {
+            count: { type: 'integer', format: 'int64' },
+            ratio: { type: 'number', format: 'double', minimum: 0, exclusiveMinimum: true },
+            state: { type: 'string', enum: ['open'], nullable: true },
+          },
+        } } } } } } },
         '/items/{id}': { get: { operationId: 'getItem', tags: ['Items'], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { 200: { description: 'Item', content: { 'application/json': { schema: responseSchema } } } } } },
       },
     };
     const generator = new OpenApiPostmanGenerator(spec, {
-      operationOrder: ['createItem', 'getItem'],
+      operationOrder: ['createItem', 'getItem', 'getMetrics'],
       variableMappings: [{ sourceOperationId: 'createItem', responseJsonPath: '$.id', variable: 'itemId', targetOperationIds: ['getItem'] }],
     });
     const collection = generator.generate();
@@ -55,7 +68,7 @@ async function main() {
 
     const result = await runCollection({ collection: collectionPath, reportDir });
     assert.equal(result.failures, 0);
-    assert.equal(result.requests, 2);
+    assert.equal(result.requests, 3);
     assert.ok(result.assertions >= 8);
     const html = fs.readFileSync(path.join(reportDir, 'report.html'), 'utf8');
     assert.match(html, /createItem/);

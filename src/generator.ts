@@ -192,7 +192,7 @@ export class OpenApiPostmanGenerator {
         key: p.name, value: String(this.parameterExample(p)),
         type: p.type === 'file' ? 'file' : 'text', disabled: !p.required,
       }));
-      headers.push({ key: 'Accept', value: (operation.produces || this.spec.produces || ['application/json'])[0] });
+      headers.push({ key: 'Accept', value: this.preferredResponseType(operation) });
       return multipart ? { mode: 'formdata', formdata: entries } : { mode: 'urlencoded', urlencoded: entries };
     }
     let requestBody: RequestBody | undefined;
@@ -223,7 +223,7 @@ export class OpenApiPostmanGenerator {
     }
     contentType ||= 'application/json';
     headers.push({ key: 'Content-Type', value: contentType });
-    headers.push({ key: 'Accept', value: (operation.produces || this.spec.produces || ['application/json'])[0] });
+    headers.push({ key: 'Accept', value: this.preferredResponseType(operation) });
     const raw = typeof example === 'string' && !contentType.includes('json') ? example : JSON.stringify(example, null, 2);
     return { mode: 'raw', raw, options: { raw: { language: contentType.includes('json') ? 'json' : 'text' } } };
   }
@@ -527,9 +527,7 @@ export class OpenApiPostmanGenerator {
     for (const scenario of requested('boundary')) {
       const boundaryField = scenario.field && resolved?.properties?.[scenario.field]
         ? [scenario.field, resolved.properties[scenario.field]] as const
-        : Object.entries(resolved?.properties || {}).find(([, schema]) =>
-          schema.minimum !== undefined || schema.maximum !== undefined || schema.minLength !== undefined || schema.maxLength !== undefined,
-        );
+        : Object.entries(resolved?.properties || {}).find(([, schema]) => this.hasBoundary(schema));
       if (!boundaryField) {
         const parameter = parameters.find(item => {
           const schema = this.parameterSchema(item);
@@ -556,18 +554,21 @@ export class OpenApiPostmanGenerator {
     return output;
   }
 
+  /** A value that violates one declared bound, or undefined when no bound can be violated. */
   private invalidBoundaryValue(schema: Schema): unknown {
     const step = schema.multipleOf || 1;
-    if (schema.minimum !== undefined) return schema.minimum - step;
-    if (schema.maximum !== undefined) return schema.maximum + step;
-    if (schema.minLength !== undefined) return 'x'.repeat(Math.max(0, schema.minLength - 1));
+    if (schema.minimum !== undefined) return schema.exclusiveMinimum === true ? schema.minimum : schema.minimum - step;
+    if (typeof schema.exclusiveMinimum === 'number') return schema.exclusiveMinimum;
+    if (schema.maximum !== undefined) return schema.exclusiveMaximum === true ? schema.maximum : schema.maximum + step;
+    if (typeof schema.exclusiveMaximum === 'number') return schema.exclusiveMaximum;
+    // minLength 0 is satisfied by every string, so only a positive minimum can be undercut.
+    if (schema.minLength !== undefined && schema.minLength > 0) return 'x'.repeat(schema.minLength - 1);
     if (schema.maxLength !== undefined) return 'x'.repeat(schema.maxLength + 1);
-    return null;
+    return undefined;
   }
 
   private hasBoundary(schema: Schema): boolean {
-    return schema.minimum !== undefined || schema.maximum !== undefined
-      || schema.minLength !== undefined || schema.maxLength !== undefined;
+    return this.invalidBoundaryValue(schema) !== undefined;
   }
 
   private parameterSchema(parameter: Parameter): Schema {

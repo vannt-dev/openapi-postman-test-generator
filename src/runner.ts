@@ -30,7 +30,8 @@ interface NewmanJsonReport {
   };
 }
 
-export function runCollection(options: RunOptions): Promise<RunResult> {
+// Async so that missing-file validation errors reject the returned promise instead of throwing synchronously.
+export async function runCollection(options: RunOptions): Promise<RunResult> {
   const collectionPath = path.resolve(options.collection);
   if (!fs.existsSync(collectionPath)) throw new Error(`Collection file not found: ${collectionPath}`);
   if (options.environment && !fs.existsSync(path.resolve(options.environment))) throw new Error(`Environment file not found: ${path.resolve(options.environment)}`);

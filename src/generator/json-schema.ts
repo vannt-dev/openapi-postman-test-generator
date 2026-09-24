@@ -2,6 +2,12 @@ import { Schema } from '../types';
 
 type Direction = 'request' | 'response';
 
+/** JSON Schema formats Postman's Ajv knows; OpenAPI-only formats would make the schema invalid. */
+const AJV_FORMATS = new Set([
+  'date', 'time', 'date-time', 'uri', 'uri-reference', 'uri-template', 'url', 'email',
+  'hostname', 'ipv4', 'ipv6', 'regex', 'uuid', 'json-pointer', 'relative-json-pointer',
+]);
+
 function excludedProperties(input: Schema, resolve: (schema: Schema) => Schema, direction: Direction, depth: number): string[] {
   if (depth > 12) return [];
   const schema = input.$ref ? resolve(input) : input;
@@ -26,9 +32,20 @@ export function toJsonSchema(input: Schema, resolve: (schema: Schema) => Schema,
     if (schema[key] !== undefined) out[key] = schema[key];
   }
   if (!out.type && schema.properties) out.type = 'object';
+  // Postman validates with Ajv, which rejects the whole schema on an unknown format
+  // (int64, double, ...) or on OAS 3.0 boolean exclusive bounds.
+  if (typeof out.format === 'string' && !AJV_FORMATS.has(out.format)) delete out.format;
+  for (const [exclusive, bound] of [['exclusiveMinimum', 'minimum'], ['exclusiveMaximum', 'maximum']] as const) {
+    if (typeof out[exclusive] !== 'boolean') continue;
+    if (out[exclusive] === true && typeof out[bound] === 'number') {
+      out[exclusive] = out[bound];
+      delete out[bound];
+    } else delete out[exclusive];
+  }
   if (schema.nullable) {
     const types = Array.isArray(out.type) ? out.type : [String(out.type || 'object')];
     out.type = [...new Set([...types, 'null'])];
+    if (Array.isArray(out.enum) && !out.enum.includes(null)) out.enum = [...out.enum, null];
   }
   if (schema.required) out.required = schema.required.filter(name => !excluded.has(name));
   if (schema.properties) out.properties = Object.fromEntries(Object.entries(schema.properties)
