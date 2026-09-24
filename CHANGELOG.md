@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Keep response schema assertions valid for Newman/Ajv: drop OpenAPI-only formats such as `int64` and `double`, convert OAS 3.0 boolean `exclusiveMinimum`/`exclusiveMaximum`, and allow `null` in nullable enums. Previously these schemas failed every matching response.
+- Generate boundary negatives only for violable bounds (`minLength: 0` no longer sends a valid empty string) and honor exclusive bounds.
+- Send the declared response media type in `Accept` for requests with a body.
+- Reject, instead of crashing, when an AI command exits before reading its prompt, so fallback providers still run.
+- `runCollection` reports missing input files as a rejected promise.
+
 ## 0.4.0 - 2026-09-22
 
 - Generate and validate examples against supported schema constraints; invalid defaults, contradictory compositions, and unsupported synthesis now fail explicitly. Provide valid explicit examples for unsupported synthesis.

@@ -202,4 +202,71 @@ const flatten = items => items.flatMap(item => item.request ? [item] : flatten(i
   ]) assert.throws(() => exampleFor(schema, resolve), /explicit example/);
 }
 
+// Response schemas must be valid for Postman's Ajv: OAS-only formats are dropped,
+// OAS 3.0 boolean exclusive bounds become numeric, and nullable enums admit null.
+{
+  const identity = schema => schema;
+  const converted = toJsonSchema({
+    type: 'object',
+    properties: {
+      count: { type: 'integer', format: 'int64' },
+      ratio: { type: 'number', format: 'double', minimum: 0, exclusiveMinimum: true, maximum: 1, exclusiveMaximum: false },
+      when: { type: 'string', format: 'date-time' },
+      state: { type: 'string', enum: ['a'], nullable: true },
+    },
+  }, identity);
+  assert.equal(converted.properties.count.format, undefined);
+  assert.equal(converted.properties.when.format, 'date-time');
+  assert.deepEqual(
+    { min: converted.properties.ratio.minimum, exMin: converted.properties.ratio.exclusiveMinimum, max: converted.properties.ratio.maximum, exMax: converted.properties.ratio.exclusiveMaximum },
+    { min: undefined, exMin: 0, max: 1, exMax: undefined },
+  );
+  assert.deepEqual(converted.properties.state.enum, ['a', null]);
+}
+
+// A boundary variant must actually violate its bound: minLength 0 cannot be undercut.
+{
+  const spec = {
+    openapi: '3.0.3', info: { title: 'Bounds', version: '1' },
+    paths: { '/x': { post: operation('x', 'X', {
+      requestBody: { content: { 'application/json': { schema: { type: 'object', properties: {
+        name: { type: 'string', minLength: 0, maxLength: 5 },
+        score: { type: 'number', exclusiveMinimum: 3 },
+      } } } } },
+    }) } },
+  };
+  const bodies = flatten(new OpenApiPostmanGenerator(spec, { includeNegative: true }).generate().item)
+    .filter(item => item.name.includes('out-of-range'))
+    .map(item => JSON.parse(item.request.body.raw));
+  assert.equal(bodies.length, 1);
+  assert.equal(bodies[0].name, 'xxxxxx');
+}
+{
+  const spec = {
+    openapi: '3.1.0', info: { title: 'Exclusive', version: '1' },
+    paths: { '/x': { post: operation('x', 'X', {
+      requestBody: { content: { 'application/json': { schema: { type: 'object', properties: {
+        score: { type: 'number', exclusiveMinimum: 3, example: 4 },
+      } } } } },
+    }) } },
+  };
+  const [variant] = flatten(new OpenApiPostmanGenerator(spec, { includeNegative: true }).generate().item)
+    .filter(item => item.name.includes('out-of-range'));
+  assert.equal(JSON.parse(variant.request.body.raw).score, 3);
+}
+
+// Requests with a body still ask for the declared response media type.
+{
+  const spec = {
+    openapi: '3.0.3', info: { title: 'Accept', version: '1' },
+    paths: { '/x': { post: {
+      operationId: 'x',
+      requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { a: { type: 'string' } } } } } },
+      responses: { 200: { description: 'OK', content: { 'application/xml': { schema: { type: 'string' } } } } },
+    } } },
+  };
+  const [item] = flatten(new OpenApiPostmanGenerator(spec).generate().item);
+  assert.deepEqual(item.request.header.filter(header => header.key === 'Accept').map(header => header.value), ['application/xml']);
+}
+
 console.log('Regression tests passed');

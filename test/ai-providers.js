@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { AiProviderRegistry, buildPlanningPrompt, planWithProviders, validateAgentPlan } = require('../dist/ai');
 const { ClaudeProvider, AntigravityProvider, CodexProvider } = require('../dist/providers/cli');
-const { CustomCommandProvider } = require('../dist/providers/command');
+const { CustomCommandProvider, defaultCommandExecutor } = require('../dist/providers/command');
 
 const spec = {
   openapi: '3.0.3',
@@ -51,6 +51,19 @@ assert.ok(buildPlanningPrompt(noIdSpec).includes('get /health'));
   assert.deepEqual(await custom.generate({ spec, prompt: 'PROMPT', schema: { type: 'object' } }, options), plan);
   assert.equal(request.command, 'agent');
   assert.equal(request.stdin, 'PROMPT');
+
+  // A provider that exits before reading a large prompt must reject, not crash the CLI,
+  // so the next fallback provider can run.
+  await assert.rejects(defaultCommandExecutor({
+    command: process.execPath, args: ['-e', 'process.exit(3)'], stdin: 'x'.repeat(8 * 1024 * 1024),
+    timeoutMs: 10_000, maxOutputBytes: 1_000_000,
+  }), /exited with code 3/);
+
+  // Library callers get a rejected promise, not a synchronous throw, for a missing collection.
+  const { runCollection } = require('../dist/runner');
+  const pending = runCollection({ collection: 'missing.collection.json', reportDir: 'generated/unused-reports' });
+  assert.ok(pending instanceof Promise);
+  await assert.rejects(pending, /Collection file not found/);
 
   console.log('AI provider tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
