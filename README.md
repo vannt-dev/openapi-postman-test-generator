@@ -4,6 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933.svg)](https://nodejs.org/)
 [![npm](https://img.shields.io/npm/v/openapi-postman-test-generator.svg)](https://www.npmjs.com/package/openapi-postman-test-generator)
+[![npm downloads](https://img.shields.io/npm/d18m/openapi-postman-test-generator.svg)](https://www.npmjs.com/package/openapi-postman-test-generator)
 
 **[View the project landing page →](https://vannt-dev.github.io/openapi-postman-test-generator/)**
 
