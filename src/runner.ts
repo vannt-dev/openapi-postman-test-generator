@@ -65,6 +65,7 @@ export async function runCollection(options: RunOptions): Promise<RunResult> {
       timeout: options.timeoutMs || 300_000,
       maxBuffer: 16 * 1024 * 1024,
     }, error => {
+      error = redactEnvVars(error, options.envVars);
       if (!fs.existsSync(jsonPath)) {
         if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {
           return reject(new Error('Newman is not installed or is not available on PATH. Install it with: npm install --global newman'));
@@ -83,6 +84,17 @@ export async function runCollection(options: RunOptions): Promise<RunResult> {
     child.stdout?.pipe(process.stdout);
     child.stderr?.pipe(process.stderr);
   });
+}
+
+// execFile errors quote the full command line; keep runtime secrets out of logs.
+function redactEnvVars<T extends Error | null>(error: T, envVars?: Record<string, string>): T {
+  const secrets = Object.values(envVars || {}).filter(Boolean);
+  if (!error || !secrets.length) return error;
+  const redact = (text: string): string => secrets.reduce((current, secret) => current.split(secret).join('***'), text);
+  error.message = redact(error.message);
+  const withCommand = error as Error & { cmd?: string };
+  if (typeof withCommand.cmd === 'string') withCommand.cmd = redact(withCommand.cmd);
+  return error;
 }
 
 export function processNewmanReport(jsonPath: string, reportDir: string): RunResult {

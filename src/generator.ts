@@ -17,6 +17,15 @@ const GET_PATH_LINES = [
   '  return tokens.reduce((current, key) => current == null ? undefined : current[key], value);',
   '};',
 ];
+// Environment values take precedence over collection variables at run time, so a value captured
+// from a response must also replace a same-named environment variable (such as a generated
+// placeholder) or later requests would keep using the placeholder.
+const SET_VARIABLE_LINES = [
+  'const setVariable = (key, value) => {',
+  '  if (pm.environment.has(key)) pm.environment.set(key, value);',
+  '  pm.collectionVariables.set(key, value);',
+  '};',
+];
 export interface GeneratorOptions {
   baseUrl?: string;
   responseTimeMs?: number;
@@ -89,7 +98,7 @@ export class OpenApiPostmanGenerator {
       const items = folders.get(tag) || [];
       const generated = [this.generateItem(entry.route, entry.method, entry.pathItem, entry.operation)];
       const asyncOperation = this.asyncOperationFor(id);
-      if (asyncOperation) generated.push(this.pollItem(asyncOperation));
+      if (asyncOperation) generated.push(this.pollItem(asyncOperation, generated[0]));
       if (this.options.includeNegative) generated.push(...this.generateNegativeItems(entry));
       items.push(...generated);
       orderedItems.push(...generated);
@@ -295,32 +304,42 @@ export class OpenApiPostmanGenerator {
       lines.push('', '// Persist common identifiers so later requests can reuse them.',
         'if (pm.response.code >= 200 && pm.response.code < 300 && pm.response.text()) {',
         '  let data; try { data = pm.response.json(); } catch (_) {}',
+        ...SET_VARIABLE_LINES.map(line => `  ${line}`),
         '  if (data && typeof data === "object" && !Array.isArray(data)) {',
-        '    Object.keys(data).filter(k => k === "id" || /Id$/.test(k)).forEach(k => pm.collectionVariables.set(k, data[k]));',
+        '    Object.keys(data).filter(k => k === "id" || /Id$/.test(k)).forEach(k => setVariable(k, data[k]));',
         '  }',
       );
       if (mappings.length) {
         lines.push(`  const mappings = ${JSON.stringify(mappings)};`, ...GET_PATH_LINES.map(line => `  ${line}`),
           '  mappings.forEach(mapping => {',
           '    const value = getPath(data, mapping.responseJsonPath);',
-          '    if (value !== undefined) pm.collectionVariables.set(mapping.variable, value);',
+          '    if (value !== undefined) setVariable(mapping.variable, value);',
           '  });',
         );
       }
       lines.push('}');
     }
     const asyncOperation = this.asyncOperationFor(operationId);
-    if (asyncOperation && !asyncOperation.statusUrl) {
-      lines.push('', '// Remember where to poll the background job started by this request.',
-        'const location = pm.response.headers.get("Location");',
-        'if (location) {',
-        '  const baseUrl = pm.variables.replaceIn("{{baseUrl}}").replace(/\\/$/, "");',
-        '  const origin = (baseUrl.match(/^[a-z][a-z0-9+.-]*:\\/\\/[^/]+/i) || [baseUrl])[0];',
-        '  const statusUrl = /^[a-z][a-z0-9+.-]*:\\/\\//i.test(location) ? location',
-        '    : location.startsWith("/") ? origin + location : baseUrl + "/" + location;',
-        `  pm.collectionVariables.set(${JSON.stringify(this.statusUrlVariable(asyncOperation))}, statusUrl);`,
-        '}',
-      );
+    if (asyncOperation) {
+      // A block keeps these names away from the declarations above.
+      lines.push('', '// Start a fresh poll for the background job started by this request.', '{',
+        `  pm.collectionVariables.unset(${JSON.stringify(this.pollCounterVariable(asyncOperation))});`);
+      if (!asyncOperation.statusUrl) {
+        const statusVariable = JSON.stringify(this.statusUrlVariable(asyncOperation));
+        lines.push(
+          `  pm.collectionVariables.unset(${statusVariable});`,
+          '  if (pm.response.code >= 200 && pm.response.code < 300) {',
+          '    const jobLocation = pm.response.headers.get("Location");',
+          '    pm.test("Response has a Location header for the async job", function () {',
+          '      pm.expect(jobLocation, "Location header").to.be.a("string").that.is.not.empty;',
+          '    });',
+          ...SET_VARIABLE_LINES.map(line => `    ${line}`),
+          '    // Resolve relative, absolute-path, and scheme-relative references against the request URL.',
+          `    if (jobLocation) setVariable(${statusVariable}, require("url").resolve(pm.variables.replaceIn(pm.request.url.toString()), jobLocation));`,
+          '  }',
+        );
+      }
+      lines.push('}');
     }
     return { listen: 'test', script: { type: 'text/javascript', exec: lines } };
   }
@@ -330,19 +349,30 @@ export class OpenApiPostmanGenerator {
   }
 
   private statusUrlVariable(asyncOperation: AsyncOperation): string {
-    return `${asyncOperation.operationId.replace(/[^A-Za-z0-9_]/g, '_')}_statusUrl`;
+    return `${this.variableSafe(asyncOperation.operationId)}_statusUrl`;
+  }
+
+  private pollCounterVariable(asyncOperation: AsyncOperation): string {
+    return `__poll_${this.variableSafe(asyncOperation.operationId)}_attempts`;
+  }
+
+  /** Escapes every non-alphanumeric character so distinct operation ids never share a variable. */
+  private variableSafe(value: string): string {
+    return value.replace(/[^A-Za-z0-9]/g, character => `_${character.charCodeAt(0).toString(16)}_`);
   }
 
   private workflowUrl(url: string): PostmanUrl {
     const raw = url.startsWith('/') ? `{{baseUrl}}${url}` : url;
-    const queryIndex = raw.indexOf('?');
-    const location = queryIndex < 0 ? raw : raw.slice(0, queryIndex);
-    const [, host, rest] = location.match(/^((?:[a-z][a-z0-9+.-]*:\/\/)?[^/]*)(.*)$/i)!;
+    // Fragments are never sent to the server.
+    const withoutFragment = raw.split('#')[0];
+    const queryIndex = withoutFragment.indexOf('?');
+    const location = queryIndex < 0 ? withoutFragment : withoutFragment.slice(0, queryIndex);
+    const [, host, rest] = location.match(/^((?:(?:[a-z][a-z0-9+.-]*|\{\{[^}]+\}\}):\/\/)?[^/]*)(.*)$/i)!;
     const result: PostmanUrl = { raw, host: [host] };
     // Postman appends "/" whenever a path array exists, so a URL held in one variable must have none.
     if (rest) result.path = rest.replace(/^\//, '').split('/');
     if (queryIndex >= 0) {
-      result.query = raw.slice(queryIndex + 1).split('&').filter(Boolean).map(pair => {
+      result.query = withoutFragment.slice(queryIndex + 1).split('&').filter(Boolean).map(pair => {
         const separator = pair.indexOf('=');
         return separator < 0 ? { key: pair, value: '' } : { key: pair.slice(0, separator), value: pair.slice(separator + 1) };
       });
@@ -377,7 +407,11 @@ export class OpenApiPostmanGenerator {
     if (request.extract && Object.keys(request.extract).length) lines.push('', ...this.extractLines(request.extract));
     return {
       name: request.name,
-      request: { method: request.method, header, ...(body ? { body } : {}), url: this.workflowUrl(request.url) },
+      request: {
+        method: request.method, header, ...(body ? { body } : {}), url: this.workflowUrl(request.url),
+        // Config URLs may point outside the API, so credentials are opt-in.
+        ...(request.inheritAuth ? {} : { auth: { type: 'noauth' } }),
+      },
       event: [{ listen: 'test', script: { type: 'text/javascript', exec: lines } }],
     };
   }
@@ -388,19 +422,20 @@ export class OpenApiPostmanGenerator {
       `const extractions = ${JSON.stringify(mappings)};`,
       'let extractData; try { extractData = pm.response.json(); } catch (_) {}',
       ...GET_PATH_LINES,
+      ...SET_VARIABLE_LINES,
       'extractions.forEach(mapping => {',
       '  const value = extractData === undefined ? undefined : getPath(extractData, mapping.responseJsonPath);',
       '  pm.test("Extracted " + mapping.variable + " from " + mapping.responseJsonPath, function () {',
       '    pm.expect(value, mapping.responseJsonPath).to.not.equal(undefined);',
       '  });',
-      '  if (value !== undefined) pm.collectionVariables.set(mapping.variable, value);',
+      '  if (value !== undefined) setVariable(mapping.variable, value);',
       '});',
     ];
   }
 
-  private pollItem(asyncOperation: AsyncOperation): PostmanItem {
+  private pollItem(asyncOperation: AsyncOperation, operationItem: PostmanItem): PostmanItem {
     const name = `Poll: ${asyncOperation.operationId}`;
-    const counter = `__poll_${asyncOperation.operationId.replace(/[^A-Za-z0-9_]/g, '_')}_attempts`;
+    const counter = this.pollCounterVariable(asyncOperation);
     const intervalMs = asyncOperation.intervalMs ?? 1000;
     const maxAttempts = asyncOperation.maxAttempts ?? 30;
     const url = asyncOperation.statusUrl ?? `{{${this.statusUrlVariable(asyncOperation)}}}`;
@@ -434,17 +469,36 @@ export class OpenApiPostmanGenerator {
       '} else {',
       '  pm.collectionVariables.unset(counterKey);',
       '  pm.test("Async job completed", function () {',
-      `    pm.expect.fail("Job did not reach a success status after ${maxAttempts} attempts; last status: " + status);`,
+      `    pm.expect.fail("Job did not reach a success status after ${maxAttempts} attempts; last status: " + status + " (HTTP " + pm.response.code + ")");`,
       '  });',
       '}',
     ];
+    // By default the status endpoint gets the operation's credentials, API-key headers, and
+    // cookies; presigned storage URLs reject extra credentials, so that can be switched off.
+    const inherit = asyncOperation.inheritAuth !== false;
+    const header: PostmanHeader[] = [
+      ...(inherit ? (operationItem.request?.header || [])
+        .filter(item => !['accept', 'content-type'].includes(item.key.toLowerCase()))
+        .map(item => ({ ...item })) : []),
+      { key: 'Accept', value: 'application/json' },
+    ];
+    const auth = inherit ? operationItem.request?.auth : { type: 'noauth' };
     return {
       name,
-      request: { method: 'GET', header: [{ key: 'Accept', value: 'application/json' }], url: this.workflowUrl(url) },
+      request: { method: 'GET', header, url: this.workflowUrl(url), ...(auth ? { auth } : {}) },
       event: [
         { listen: 'prerequest', script: { type: 'text/javascript', exec: [
-          `// Wait before every retry; the first status check runs immediately.`,
-          `if (Number(pm.collectionVariables.get(${JSON.stringify(counter)}) || 0) > 0) setTimeout(function () {}, ${intervalMs});`,
+          'const statusUrl = pm.variables.replaceIn(pm.request.url.toString());',
+          'if (!statusUrl || /{{[^}]+}}/.test(statusUrl)) {',
+          `  pm.collectionVariables.unset(${JSON.stringify(counter)});`,
+          '  pm.test("Async job status URL is resolved", function () {',
+          '    pm.expect.fail("No status URL to poll: " + statusUrl);',
+          '  });',
+          '  if (pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();',
+          `} else if (Number(pm.collectionVariables.get(${JSON.stringify(counter)}) || 0) > 0) {`,
+          '  // Wait before every retry; the first status check runs immediately.',
+          `  setTimeout(function () {}, ${intervalMs});`,
+          '}',
         ] } },
         { listen: 'test', script: { type: 'text/javascript', exec } },
       ],

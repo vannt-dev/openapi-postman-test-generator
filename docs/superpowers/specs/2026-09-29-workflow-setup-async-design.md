@@ -96,3 +96,16 @@ No generator logic. Two documented patterns:
 README: new "Setup, teardown, async jobs, and OTP" section; the limitations paragraph points to
 it and states the `--bail` cleanup caveat. `examples/openapi-postman.config.yaml` gains the new
 keys.
+
+## Changes after review (2026-09-29)
+
+- Captured values go through a `setVariable` helper that also updates a same-named environment
+  variable. This fixes a pre-existing bug: placeholders in the generated environment file hid
+  values captured by `variableMappings` (and `bearerAuth_token` from a login mapping).
+- Workflow requests use `noauth` unless `inheritAuth: true`. Polls copy the operation's auth and
+  non-content headers unless `inheritAuth: false`.
+- Location is captured only on 2xx, resolved with `require("url").resolve` against the request
+  URL, and the previous status URL and attempt counter are cleared when the operation runs.
+- An unresolved status URL fails once and skips the poll request.
+- Poll variable names escape every non-alphanumeric character, so ids cannot collide.
+- `--env-var` is validated before generation, rejected without `--run`, and masked in errors.

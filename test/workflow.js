@@ -97,6 +97,70 @@ const teardown = [{ name: 'Reset tenant', method: 'DELETE', url: 'http://reset.t
   assert.match(script(exportsFolder.item[1]), /attempts < 30/);
 }
 
+// Review fixes: auth isolation, collision-free keys, stale state, and environment-aware variables.
+{
+  const securedSpec = {
+    ...spec,
+    security: [{ bearerAuth: [], apiKey: [] }],
+    components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer' }, apiKey: { type: 'apiKey', in: 'header', name: 'X-Api-Key' } } },
+    paths: {
+      ...spec.paths,
+      '/a': { post: { operationId: 'export-users', responses: { 202: { description: 'Accepted' } } } },
+      '/b': { post: { operationId: 'export.users', responses: { 202: { description: 'Accepted' } } } },
+    },
+  };
+  const asyncOperation = id => ({ operationId: id, statusJsonPath: '$.status', successValues: ['done'] });
+  const collection = new OpenApiPostmanGenerator(securedSpec, {
+    setup: [...setup, { ...setup[0], name: 'Authenticated seed', inheritAuth: true }],
+    asyncOperations: [asyncOperation('export-users'), asyncOperation('export.users'), { ...asyncOperation('createExport'), inheritAuth: false }],
+  }).generate();
+  const all = collection.item.flatMap(item => item.item || [item]);
+  const byName = name => all.find(item => item.name === name);
+  // Setup requests do not send the API credentials unless asked to.
+  assert.deepEqual(byName('Seed tenant').request.auth, { type: 'noauth' });
+  assert.equal(byName('Authenticated seed').request.auth, undefined);
+  // Polls reuse the operation's credentials by default, or send none.
+  const poll = byName('Poll: export-users');
+  assert.deepEqual(poll.request.auth, byName('export-users').request.auth);
+  assert.equal(poll.request.auth.type, 'bearer');
+  assert.equal(poll.request.header.find(header => header.key === 'X-Api-Key').value, '{{apiKey}}');
+  assert.deepEqual(byName('Poll: createExport').request.auth, { type: 'noauth' });
+  assert.ok(!byName('Poll: createExport').request.header.some(header => header.key === 'X-Api-Key'));
+  // Different operation ids never share poll state.
+  const urls = ['Poll: export-users', 'Poll: export.users'].map(name => byName(name).request.url.raw);
+  assert.notEqual(urls[0], urls[1]);
+  assert.notEqual(script(byName('Poll: export-users')).match(/counterKey = "([^"]+)"/)[1], script(byName('Poll: export.users')).match(/counterKey = "([^"]+)"/)[1]);
+  // The starting request resets stale state and only captures Location on 2xx.
+  const start = script(byName('createExport'));
+  assert.match(start, /collectionVariables\.unset\("__poll_createExport_attempts"\)/);
+  assert.match(start, /collectionVariables\.unset\("createExport_statusUrl"\)/);
+  assert.match(start, /pm\.response\.code >= 200 && pm\.response\.code < 300/);
+  assert.match(start, /require\("url"\)\.resolve/);
+  // An unresolved status URL fails fast instead of retrying.
+  assert.match(script(poll, 'prerequest'), /skipRequest/);
+  // Extracted values also update an environment variable of the same name.
+  assert.match(script(byName('Seed tenant')), /pm\.environment\.has\(key\)/);
+}
+
+// Workflow URLs keep templated schemes intact and drop fragments.
+{
+  const collection = new OpenApiPostmanGenerator(spec, { setup: [{ name: 'Templated', method: 'GET', url: '{{scheme}}://{{host}}/seed?x=1#top' }] }).generate();
+  const { url } = collection.item[0].item[0].request;
+  assert.deepEqual(url.host, ['{{scheme}}://{{host}}']);
+  assert.deepEqual(url.path, ['seed']);
+  assert.deepEqual(url.query, [{ key: 'x', value: '1' }]);
+}
+
+// Existing identifier mappings also update environment variables of the same name.
+{
+  const collection = new OpenApiPostmanGenerator(spec, {
+    variableMappings: [{ sourceOperationId: 'createExport', responseJsonPath: '$.id', variable: 'exportId' }],
+  }).generate();
+  const exportsFolder = collection.item.find(item => item.name === 'Exports');
+  assert.match(script(exportsFolder.item[0]), /setVariable\(mapping\.variable, value\)/);
+  assert.match(script(exportsFolder.item[0]), /pm\.environment\.has\(key\)/);
+}
+
 // Config validation for the new keys.
 {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'openapi-postman-workflow-'));
@@ -143,6 +207,22 @@ const teardown = [{ name: 'Reset tenant', method: 'DELETE', url: 'http://reset.t
     const args = JSON.parse(fs.readFileSync(process.env.ARGS_OUT, 'utf8'));
     const pairs = args.flatMap((arg, index) => arg === '--env-var' ? [args[index + 1]] : []);
     assert.deepEqual(pairs, ['otp=123456', 'token=a=b']);
+
+    // A failed Newman process must not echo runtime secrets in the error message.
+    fs.writeFileSync(fake, 'process.exit(2);');
+    await assert.rejects(
+      () => runCollection({ collection, reportDir: path.join(temp, 'reports'), executable: process.execPath, executableArgsPrefix: [fake], envVars: { otp: '123456' } }),
+      error => !String(error.message).includes('123456') && !String(error.cmd || '').includes('123456'),
+    );
+
+    // --env-var is validated before any generation work and only accepted with --run.
+    const cli = args => require('node:child_process').spawnSync(process.execPath, [path.join(__dirname, '..', 'dist', 'index.js'), ...args], { encoding: 'utf8' });
+    const spec = path.join(__dirname, '..', 'fixtures', 'petstore.openapi.yaml');
+    const out = ['--out', path.join(temp, 'c.json'), '--env', path.join(temp, 'e.json')];
+    assert.match(cli(['generate', '--spec', spec, ...out, '--env-var', 'otp=1']).stderr, /--env-var requires --run/);
+    const malformed = cli(['generate', '--spec', spec, ...out, '--run', '--env-var', 'otp']);
+    assert.match(malformed.stderr, /--env-var must be KEY=VALUE/);
+    assert.ok(!fs.existsSync(path.join(temp, 'c.json')));
     console.log('Workflow tests passed');
   } finally {
     delete process.env.ARGS_OUT;

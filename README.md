@@ -262,11 +262,19 @@ asyncOperations:
 ```
 
 - `setup` requests run first, in a `Setup` folder; `teardown` requests run last, in a
-  `Teardown` folder. They are explicit, so safe mode keeps them.
+  `Teardown` folder. They are explicit, so safe mode keeps them. They send no API credentials
+  unless `inheritAuth: true` is set, because their URLs may point outside the API.
+- Extracted values (and identifiers captured by `variableMappings`) also replace a variable of
+  the same name in the environment, so placeholders in the generated environment file do not
+  hide them.
 - Each async operation gets a `Poll: <operationId>` request right after it. By default it polls
-  the URL in the operation's `Location` response header; set `statusUrl` (for example
-  `/exports/{{exportId}}`) to poll a fixed endpoint instead. The poll repeats until a success or
-  failure value appears, or fails after `maxAttempts`.
+  the URL in the operation's 2xx `Location` response header, resolved against the request URL;
+  set `statusUrl` (for example `/exports/{{exportId}}`) to poll a fixed endpoint instead. The
+  poll repeats until a success or failure value appears, or fails after `maxAttempts`. It fails
+  at once, without retrying, when there is no status URL.
+- The poll reuses the operation's credentials, API-key headers, and cookies. Set
+  `inheritAuth: false` when the status URL is a presigned storage link that rejects them.
+  Newman follows redirects, so a `303 See Other` API should use `statusUrl`.
 - For OTP flows, either fetch the code from a test-only endpoint with a `setup` request and
   `extract: { otp: $.code }`, or pass it when running:
 
@@ -274,8 +282,10 @@ asyncOperations:
   node dist/index.js run --collection ./generated/api.collection.json --env-var otp=123456
   ```
 
-  `--env-var KEY=VALUE` can be repeated and also works with `generate --run`. Values given on the
-  command line are visible to other local processes; prefer CI secrets for real credentials.
+  `--env-var KEY=VALUE` can be repeated and also works with `generate --run`. The values are
+  masked in this tool's error messages, but they are visible to other local processes and
+  Newman writes the environment into `newman.json`; prefer CI secrets for real credentials and
+  do not publish the report directory.
 
 ## Development
 

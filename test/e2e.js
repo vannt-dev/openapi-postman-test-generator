@@ -74,6 +74,12 @@ async function main() {
     assert.match(html, /createItem/);
     assert.match(html, /getItem/);
     assert.ok(fs.existsSync(path.join(reportDir, 'junit.xml')));
+
+    // The generated environment lists itemId as a placeholder; the mapped value must still win.
+    const environmentPath = path.join(temp, 'environment.json');
+    fs.writeFileSync(environmentPath, JSON.stringify(generator.generateEnvironment()));
+    const withEnvironment = await runCollection({ collection: collectionPath, environment: environmentPath, reportDir });
+    assert.equal(withEnvironment.failures, 0);
     console.log('Real Newman end-to-end test passed');
   } finally {
     await new Promise(resolve => server.close(resolve));

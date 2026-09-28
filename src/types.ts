@@ -173,6 +173,8 @@ export interface WorkflowRequest {
   expectStatus?: number[];
   /** Collection variable name -> JSONPath in the response body. */
   extract?: Record<string, string>;
+  /** Send the collection's API credentials. Defaults to false. */
+  inheritAuth?: boolean;
 }
 
 /** An operation that starts a background job whose status must be polled. */
@@ -187,6 +189,8 @@ export interface AsyncOperation {
   maxAttempts?: number;
   /** Applied when the job reaches a success value. */
   extract?: Record<string, string>;
+  /** Poll with the operation's credentials and headers. Defaults to true; disable for presigned storage URLs. */
+  inheritAuth?: boolean;
 }
 
 export interface AgentPlan {

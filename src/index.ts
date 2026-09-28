@@ -97,6 +97,8 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
   validateFlags(flags, GENERATE_FLAGS);
   const specLocation = stringFlag(flags, 'spec');
   if (!specLocation) throw new Error('--spec is required');
+  if (flags['env-var'] !== undefined && !flags.run) throw new Error('--env-var requires --run when generating');
+  envVarsFlag(flags);
   const config = loadProjectConfig(stringFlag(flags, 'config'));
   const profileName = stringFlag(flags, 'profile');
   const profile = profileName ? config.profiles?.[profileName] : undefined;

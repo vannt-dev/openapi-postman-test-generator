@@ -29,6 +29,7 @@ const workflowRequestSchema = z.object({
   body: z.unknown().optional(),
   expectStatus: z.array(z.number().int().min(100).max(599)).min(1).optional(),
   extract: extractSchema.optional(),
+  inheritAuth: z.boolean().optional(),
 }).strict();
 
 const asyncOperationSchema = z.object({
@@ -40,6 +41,7 @@ const asyncOperationSchema = z.object({
   intervalMs: z.number().int().nonnegative().optional(),
   maxAttempts: z.number().int().positive().optional(),
   extract: extractSchema.optional(),
+  inheritAuth: z.boolean().optional(),
 }).strict();
 
 const providerSchema = z.object({
