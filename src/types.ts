@@ -122,7 +122,7 @@ export interface PostmanAuth { type: string; [key: string]: unknown }
 export interface PostmanEvent { listen: 'test' | 'prerequest'; script: { type: 'text/javascript'; exec: string[] } }
 export interface PostmanHeader { key: string; value: string; description?: string; disabled?: boolean }
 export interface PostmanQueryParam { key: string; value: string; description?: string; disabled?: boolean }
-export interface PostmanUrl { raw: string; host: string[]; path: string[]; query?: PostmanQueryParam[] }
+export interface PostmanUrl { raw: string; host: string[]; path?: string[]; query?: PostmanQueryParam[] }
 export interface PostmanFormEntry { key: string; value: string; type: 'text' | 'file'; disabled?: boolean }
 export type PostmanBody =
   | { mode: 'raw'; raw: string; options: { raw: { language: 'json' | 'text' } } }
@@ -156,6 +156,37 @@ export interface NegativeScenario {
   name: string;
   kind: 'missing_required' | 'boundary' | 'invalid_enum' | 'unauthorized';
   field?: string | null;
+}
+
+export type WorkflowMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
+
+/** A request that is not described by the spec, such as seeding data or resetting an environment. */
+export interface WorkflowRequest {
+  name: string;
+  method: WorkflowMethod;
+  /** A leading "/" is prefixed with {{baseUrl}}. */
+  url: string;
+  headers?: Record<string, string>;
+  /** Objects and arrays are sent as JSON; strings are sent as raw text. */
+  body?: unknown;
+  /** Accepted status codes. Defaults to any 2xx. */
+  expectStatus?: number[];
+  /** Collection variable name -> JSONPath in the response body. */
+  extract?: Record<string, string>;
+}
+
+/** An operation that starts a background job whose status must be polled. */
+export interface AsyncOperation {
+  operationId: string;
+  /** Defaults to the operation's Location response header. */
+  statusUrl?: string;
+  statusJsonPath: string;
+  successValues: string[];
+  failureValues?: string[];
+  intervalMs?: number;
+  maxAttempts?: number;
+  /** Applied when the job reaches a success value. */
+  extract?: Record<string, string>;
 }
 
 export interface AgentPlan {
@@ -196,6 +227,9 @@ export interface ProjectConfig {
   variableMappings?: VariableMapping[];
   negativeScenarios?: NegativeScenario[];
   disabledOperations?: string[];
+  setup?: WorkflowRequest[];
+  teardown?: WorkflowRequest[];
+  asyncOperations?: AsyncOperation[];
   profiles?: Record<string, {
     baseUrl?: string;
     variables?: Record<string, string>;

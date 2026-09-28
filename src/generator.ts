@@ -2,13 +2,21 @@ import { exampleFor } from './generator/example';
 import { toJsonSchema } from './generator/json-schema';
 import { classifySecurityScheme } from './generator/security';
 import {
-  MediaType, NegativeScenario, OpenApiSpec, Operation, Parameter, PathItem, PostmanAuth,
+  AsyncOperation, MediaType, NegativeScenario, OpenApiSpec, Operation, Parameter, PathItem, PostmanAuth,
   PostmanBody, PostmanCollection, PostmanEnvironment, PostmanEvent, PostmanFormEntry,
   PostmanHeader, PostmanItem, PostmanQueryParam, PostmanUrl, PostmanVariable,
-  Reference, RequestBody, Response, Schema, SecurityScheme, VariableMapping,
+  Reference, RequestBody, Response, Schema, SecurityScheme, VariableMapping, WorkflowRequest,
 } from './types';
 
 const HTTP_METHODS = ['get', 'post', 'put', 'delete', 'patch', 'head', 'options'] as const;
+// Postman script helper that resolves the small JSONPath subset used by mappings and extractions.
+const GET_PATH_LINES = [
+  'const getPath = (value, jsonPath) => {',
+  '  const tokens = [];',
+  '  jsonPath.replace(/^\\$\\.?/, "").replace(/\\[([0-9]+)|[\\x27"]([^\\x27"]+)[\\x27"]\\]|([^.\\[\\]]+)/g, (_, index, quoted, plain) => { tokens.push(index !== undefined ? Number(index) : quoted || plain); return ""; });',
+  '  return tokens.reduce((current, key) => current == null ? undefined : current[key], value);',
+  '};',
+];
 export interface GeneratorOptions {
   baseUrl?: string;
   responseTimeMs?: number;
@@ -19,6 +27,9 @@ export interface GeneratorOptions {
   variableMappings?: VariableMapping[];
   negativeScenarios?: NegativeScenario[];
   disabledOperations?: string[];
+  setup?: WorkflowRequest[];
+  teardown?: WorkflowRequest[];
+  asyncOperations?: AsyncOperation[];
 }
 
 interface OperationEntry { route: string; method: string; pathItem: PathItem; operation: Operation; index: number }
@@ -64,6 +75,9 @@ export class OpenApiPostmanGenerator {
     for (const scenario of this.options.negativeScenarios || []) {
       if (!knownOperations.has(scenario.operationId)) this.warnings.push(`Negative scenario operation was not found: ${scenario.operationId}`);
     }
+    for (const asyncOperation of this.options.asyncOperations || []) {
+      if (!knownOperations.has(asyncOperation.operationId)) this.warnings.push(`Async operation was not found: ${asyncOperation.operationId}`);
+    }
     for (const entry of this.sortEntries(entries)) {
       const id = this.operationId(entry.route, entry.method, entry.operation);
       if (this.options.disabledOperations?.includes(id)) continue;
@@ -74,6 +88,8 @@ export class OpenApiPostmanGenerator {
       const tag = entry.operation.tags?.[0] || 'Default';
       const items = folders.get(tag) || [];
       const generated = [this.generateItem(entry.route, entry.method, entry.pathItem, entry.operation)];
+      const asyncOperation = this.asyncOperationFor(id);
+      if (asyncOperation) generated.push(this.pollItem(asyncOperation));
       if (this.options.includeNegative) generated.push(...this.generateNegativeItems(entry));
       items.push(...generated);
       orderedItems.push(...generated);
@@ -87,9 +103,13 @@ export class OpenApiPostmanGenerator {
       },
       // A configured workflow may alternate between tags. Top-level requests are
       // required here because grouping them into tag folders changes execution order.
-      item: this.options.operationOrder?.length
-        ? orderedItems
-        : [...folders].map(([name, item]) => ({ name, item })),
+      item: [
+        ...this.workflowFolder('Setup', this.options.setup),
+        ...(this.options.operationOrder?.length
+          ? orderedItems
+          : [...folders].map(([name, item]) => ({ name, item }))),
+        ...this.workflowFolder('Teardown', this.options.teardown),
+      ],
       variable: [...this.variables.values()],
       auth: this.authFor(this.spec.security),
     };
@@ -280,12 +300,7 @@ export class OpenApiPostmanGenerator {
         '  }',
       );
       if (mappings.length) {
-        lines.push(`  const mappings = ${JSON.stringify(mappings)};`,
-          '  const getPath = (value, jsonPath) => {',
-          '    const tokens = [];',
-          '    jsonPath.replace(/^\\$\\.?/, "").replace(/\\[([0-9]+)|[\\x27"]([^\\x27"]+)[\\x27"]\\]|([^.\\[\\]]+)/g, (_, index, quoted, plain) => { tokens.push(index !== undefined ? Number(index) : quoted || plain); return ""; });',
-          '    return tokens.reduce((current, key) => current == null ? undefined : current[key], value);',
-          '  };',
+        lines.push(`  const mappings = ${JSON.stringify(mappings)};`, ...GET_PATH_LINES.map(line => `  ${line}`),
           '  mappings.forEach(mapping => {',
           '    const value = getPath(data, mapping.responseJsonPath);',
           '    if (value !== undefined) pm.collectionVariables.set(mapping.variable, value);',
@@ -294,7 +309,146 @@ export class OpenApiPostmanGenerator {
       }
       lines.push('}');
     }
+    const asyncOperation = this.asyncOperationFor(operationId);
+    if (asyncOperation && !asyncOperation.statusUrl) {
+      lines.push('', '// Remember where to poll the background job started by this request.',
+        'const location = pm.response.headers.get("Location");',
+        'if (location) {',
+        '  const baseUrl = pm.variables.replaceIn("{{baseUrl}}").replace(/\\/$/, "");',
+        '  const origin = (baseUrl.match(/^[a-z][a-z0-9+.-]*:\\/\\/[^/]+/i) || [baseUrl])[0];',
+        '  const statusUrl = /^[a-z][a-z0-9+.-]*:\\/\\//i.test(location) ? location',
+        '    : location.startsWith("/") ? origin + location : baseUrl + "/" + location;',
+        `  pm.collectionVariables.set(${JSON.stringify(this.statusUrlVariable(asyncOperation))}, statusUrl);`,
+        '}',
+      );
+    }
     return { listen: 'test', script: { type: 'text/javascript', exec: lines } };
+  }
+
+  private asyncOperationFor(operationId: string): AsyncOperation | undefined {
+    return this.options.asyncOperations?.find(candidate => candidate.operationId === operationId);
+  }
+
+  private statusUrlVariable(asyncOperation: AsyncOperation): string {
+    return `${asyncOperation.operationId.replace(/[^A-Za-z0-9_]/g, '_')}_statusUrl`;
+  }
+
+  private workflowUrl(url: string): PostmanUrl {
+    const raw = url.startsWith('/') ? `{{baseUrl}}${url}` : url;
+    const queryIndex = raw.indexOf('?');
+    const location = queryIndex < 0 ? raw : raw.slice(0, queryIndex);
+    const [, host, rest] = location.match(/^((?:[a-z][a-z0-9+.-]*:\/\/)?[^/]*)(.*)$/i)!;
+    const result: PostmanUrl = { raw, host: [host] };
+    // Postman appends "/" whenever a path array exists, so a URL held in one variable must have none.
+    if (rest) result.path = rest.replace(/^\//, '').split('/');
+    if (queryIndex >= 0) {
+      result.query = raw.slice(queryIndex + 1).split('&').filter(Boolean).map(pair => {
+        const separator = pair.indexOf('=');
+        return separator < 0 ? { key: pair, value: '' } : { key: pair.slice(0, separator), value: pair.slice(separator + 1) };
+      });
+    }
+    return result;
+  }
+
+  private workflowFolder(name: string, requests: WorkflowRequest[] | undefined): PostmanItem[] {
+    if (!requests?.length) return [];
+    return [{ name, item: requests.map(request => this.workflowItem(request)) }];
+  }
+
+  private workflowItem(request: WorkflowRequest): PostmanItem {
+    const header: PostmanHeader[] = Object.entries(request.headers || {}).map(([key, value]) => ({ key, value }));
+    let body: PostmanBody | undefined;
+    if (request.body !== undefined) {
+      const text = typeof request.body === 'string';
+      if (!header.some(item => item.key.toLowerCase() === 'content-type')) {
+        header.push({ key: 'Content-Type', value: text ? 'text/plain' : 'application/json' });
+      }
+      body = {
+        mode: 'raw',
+        raw: text ? request.body as string : JSON.stringify(request.body, null, 2),
+        options: { raw: { language: text ? 'text' : 'json' } },
+      };
+    }
+    const lines = request.expectStatus
+      ? [`pm.test("Status code is ${request.expectStatus.join(', ')}", function () {`,
+        `  pm.expect(pm.response.code).to.be.oneOf(${JSON.stringify(request.expectStatus)});`, '});']
+      : ['pm.test("Status code is successful (2XX)", function () {',
+        '  pm.expect(pm.response.code).to.be.within(200, 299);', '});'];
+    if (request.extract && Object.keys(request.extract).length) lines.push('', ...this.extractLines(request.extract));
+    return {
+      name: request.name,
+      request: { method: request.method, header, ...(body ? { body } : {}), url: this.workflowUrl(request.url) },
+      event: [{ listen: 'test', script: { type: 'text/javascript', exec: lines } }],
+    };
+  }
+
+  private extractLines(extract: Record<string, string>): string[] {
+    const mappings = Object.entries(extract).map(([variable, responseJsonPath]) => ({ variable, responseJsonPath }));
+    return [
+      `const extractions = ${JSON.stringify(mappings)};`,
+      'let extractData; try { extractData = pm.response.json(); } catch (_) {}',
+      ...GET_PATH_LINES,
+      'extractions.forEach(mapping => {',
+      '  const value = extractData === undefined ? undefined : getPath(extractData, mapping.responseJsonPath);',
+      '  pm.test("Extracted " + mapping.variable + " from " + mapping.responseJsonPath, function () {',
+      '    pm.expect(value, mapping.responseJsonPath).to.not.equal(undefined);',
+      '  });',
+      '  if (value !== undefined) pm.collectionVariables.set(mapping.variable, value);',
+      '});',
+    ];
+  }
+
+  private pollItem(asyncOperation: AsyncOperation): PostmanItem {
+    const name = `Poll: ${asyncOperation.operationId}`;
+    const counter = `__poll_${asyncOperation.operationId.replace(/[^A-Za-z0-9_]/g, '_')}_attempts`;
+    const intervalMs = asyncOperation.intervalMs ?? 1000;
+    const maxAttempts = asyncOperation.maxAttempts ?? 30;
+    const url = asyncOperation.statusUrl ?? `{{${this.statusUrlVariable(asyncOperation)}}}`;
+    const exec = [
+      `const counterKey = ${JSON.stringify(counter)};`,
+      'const attempts = Number(pm.collectionVariables.get(counterKey) || 0) + 1;',
+      `const successValues = ${JSON.stringify(asyncOperation.successValues)};`,
+      `const failureValues = ${JSON.stringify(asyncOperation.failureValues || [])};`,
+      `const statusPath = ${JSON.stringify(asyncOperation.statusJsonPath)};`,
+      'let pollData; try { pollData = pm.response.json(); } catch (_) {}',
+      ...GET_PATH_LINES,
+      'const rawStatus = pollData === undefined ? undefined : getPath(pollData, statusPath);',
+      'const status = rawStatus === undefined || rawStatus === null ? undefined : String(rawStatus);',
+      'const next = requestName => (pm.execution && pm.execution.setNextRequest)',
+      '  ? pm.execution.setNextRequest(requestName) : postman.setNextRequest(requestName);',
+      'if (successValues.includes(status)) {',
+      '  pm.collectionVariables.unset(counterKey);',
+      '  pm.test("Async job completed", function () {',
+      '    pm.expect(status).to.be.oneOf(successValues);',
+      '  });',
+      ...(asyncOperation.extract && Object.keys(asyncOperation.extract).length
+        ? this.extractLines(asyncOperation.extract).map(line => `  ${line}`) : []),
+      '} else if (failureValues.includes(status)) {',
+      '  pm.collectionVariables.unset(counterKey);',
+      '  pm.test("Async job completed", function () {',
+      '    pm.expect.fail("Job reached failure status " + status);',
+      '  });',
+      `} else if (attempts < ${maxAttempts}) {`,
+      '  pm.collectionVariables.set(counterKey, attempts);',
+      '  next(pm.info.requestName);',
+      '} else {',
+      '  pm.collectionVariables.unset(counterKey);',
+      '  pm.test("Async job completed", function () {',
+      `    pm.expect.fail("Job did not reach a success status after ${maxAttempts} attempts; last status: " + status);`,
+      '  });',
+      '}',
+    ];
+    return {
+      name,
+      request: { method: 'GET', header: [{ key: 'Accept', value: 'application/json' }], url: this.workflowUrl(url) },
+      event: [
+        { listen: 'prerequest', script: { type: 'text/javascript', exec: [
+          `// Wait before every retry; the first status check runs immediately.`,
+          `if (Number(pm.collectionVariables.get(${JSON.stringify(counter)}) || 0) > 0) setTimeout(function () {}, ${intervalMs});`,
+        ] } },
+        { listen: 'test', script: { type: 'text/javascript', exec } },
+      ],
+    };
   }
 
   private responseSchema(response: Response | undefined, contentType?: string): Schema | undefined {
@@ -619,7 +773,7 @@ export class OpenApiPostmanGenerator {
     } else if (parameter.in === 'path') {
       const variable = this.mappedVariableFor(operationId, parameter.name) || parameter.name;
       request.url.raw = request.url.raw.replace(`{{${variable}}}`, replacement);
-      request.url.path = request.url.path.map(segment => segment === `{{${variable}}}` ? replacement : segment);
+      if (request.url.path) request.url.path = request.url.path.map(segment => segment === `{{${variable}}}` ? replacement : segment);
       changed = true;
     } else if (parameter.in === 'formData' && request.body && request.body.mode !== 'raw') {
       const entries = request.body.mode === 'formdata' ? request.body.formdata : request.body.urlencoded;

@@ -10,6 +10,8 @@ export interface RunOptions {
   timeoutMs?: number;
   reportDir: string;
   bail?: boolean;
+  /** Runtime variables passed to Newman as --env-var KEY=VALUE, e.g. a one-time password. */
+  envVars?: Record<string, string>;
   executable?: string;
   executableArgsPrefix?: string[];
 }
@@ -53,6 +55,7 @@ export async function runCollection(options: RunOptions): Promise<RunResult> {
   if (options.environment) rawArgs.push('--environment', path.resolve(options.environment));
   if (options.iterationData) rawArgs.push('--iteration-data', path.resolve(options.iterationData));
   if (options.bail) rawArgs.push('--bail');
+  for (const [key, value] of Object.entries(options.envVars || {})) rawArgs.push('--env-var', `${key}=${value}`);
   // execFile() cannot launch a .cmd/.bat file directly on Windows without `shell: true`;
   // resolve it the same safe way the AI CLI providers do instead of shelling out.
   const { command: executable, args } = resolveWindowsCommand(options.executable || 'newman', rawArgs);

@@ -18,6 +18,30 @@ const negativeScenarioSchema = z.object({
   field: z.string().min(1).nullable().optional(),
 }).strict();
 
+const extractSchema = z.record(z.string().min(1), z.string().min(1));
+
+const workflowRequestSchema = z.object({
+  name: z.string().min(1),
+  method: z.string().transform(value => value.toUpperCase())
+    .pipe(z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])),
+  url: z.string().min(1),
+  headers: z.record(z.string(), z.string()).optional(),
+  body: z.unknown().optional(),
+  expectStatus: z.array(z.number().int().min(100).max(599)).min(1).optional(),
+  extract: extractSchema.optional(),
+}).strict();
+
+const asyncOperationSchema = z.object({
+  operationId: z.string().min(1),
+  statusUrl: z.string().min(1).optional(),
+  statusJsonPath: z.string().min(1),
+  successValues: z.array(z.string()).min(1),
+  failureValues: z.array(z.string()).optional(),
+  intervalMs: z.number().int().nonnegative().optional(),
+  maxAttempts: z.number().int().positive().optional(),
+  extract: extractSchema.optional(),
+}).strict();
+
 const providerSchema = z.object({
   type: z.enum(['openai', 'codex', 'claude', 'antigravity', 'command']).optional(),
   command: z.string().min(1).optional(),
@@ -40,6 +64,9 @@ const projectConfigSchema = z.object({
   variableMappings: z.array(variableMappingSchema).optional(),
   negativeScenarios: z.array(negativeScenarioSchema).optional(),
   disabledOperations: z.array(z.string().min(1)).optional(),
+  setup: z.array(workflowRequestSchema).optional(),
+  teardown: z.array(workflowRequestSchema).optional(),
+  asyncOperations: z.array(asyncOperationSchema).optional(),
   profiles: z.record(z.string(), z.object({
     baseUrl: z.string().min(1).optional(),
     variables: z.record(z.string(), z.string()).optional(),

@@ -24,6 +24,30 @@ negativeScenarios:
     kind: missing_required
     field: email
 
+# Requests outside the spec: seed data first, clean up last. Kept in safe mode.
+setup:
+  - name: Seed tenant
+    method: POST
+    url: /admin/seed
+    headers:
+      X-Admin-Key: "{{adminKey}}"
+    body: { name: test-tenant }
+    expectStatus: [201]
+    extract: { tenantId: $.id }
+teardown:
+  - name: Delete tenant
+    method: DELETE
+    url: /admin/tenants/{{tenantId}}
+
+# Poll background jobs started by these operations (Location header by default).
+asyncOperations:
+  - operationId: createUserExport
+    statusJsonPath: $.status
+    successValues: [done]
+    failureValues: [failed]
+    intervalMs: 1000
+    maxAttempts: 30
+
 # Select with --profile staging. Profile variables override shared variables.
 profiles:
   staging:
