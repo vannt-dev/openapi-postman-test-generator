@@ -8,11 +8,12 @@ import { OpenApiPostmanGenerator } from './generator';
 import { runCollection } from './runner';
 import { AgentPlan, OpenApiSpec, PostmanItem, ProjectConfig } from './types';
 
-type Flags = Record<string, string | boolean>;
+type Flags = Record<string, string | boolean | string[]>;
 
 const BOOLEAN_FLAGS = new Set(['negative', 'safe', 'ai', 'run', 'bail', 'help']);
-const GENERATE_FLAGS = new Set(['spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail']);
-const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'iteration-data', 'run-timeout', 'bail']);
+const REPEATABLE_FLAGS = new Set(['env-var']);
+const GENERATE_FLAGS = new Set(['spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var']);
+const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var']);
 
 function printUsage(exitCode = 1): never {
   console.error(`OpenAPI Postman Test Generator
@@ -44,7 +45,8 @@ Run options:
   --iteration-data <file>  JSON or CSV data file for data-driven runs
   --run-timeout <ms>       Maximum total Newman runtime (default: 300000)
   --report-dir <directory> Report output directory (default: generated/reports)
-  --bail                   Stop after the first failure`);
+  --bail                   Stop after the first failure
+  --env-var <key=value>    Runtime variable such as an OTP (repeatable)`);
   process.exit(exitCode);
 }
 
@@ -57,6 +59,7 @@ function parseFlags(args: string[]): Flags {
     if (BOOLEAN_FLAGS.has(key)) { flags[key] = true; continue; }
     const next = args[index + 1];
     if (!next || next.startsWith('--')) throw new Error(`--${key} requires a value`);
+    else if (REPEATABLE_FLAGS.has(key)) { flags[key] = [...(flags[key] as string[] | undefined || []), next]; index++; }
     else { flags[key] = next; index++; }
   }
   return flags;
@@ -72,6 +75,16 @@ function stringFlag(flags: Flags, key: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function envVarsFlag(flags: Flags): Record<string, string> | undefined {
+  const values = flags['env-var'];
+  if (!Array.isArray(values)) return undefined;
+  return Object.fromEntries(values.map(value => {
+    const separator = value.indexOf('=');
+    if (separator <= 0) throw new Error(`--env-var must be KEY=VALUE: ${value}`);
+    return [value.slice(0, separator), value.slice(separator + 1)];
+  }));
+}
+
 function numberFlag(flags: Flags, key: string): number | undefined {
   const raw = stringFlag(flags, key);
   if (raw === undefined) return undefined;
@@ -84,6 +97,8 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
   validateFlags(flags, GENERATE_FLAGS);
   const specLocation = stringFlag(flags, 'spec');
   if (!specLocation) throw new Error('--spec is required');
+  if (flags['env-var'] !== undefined && !flags.run) throw new Error('--env-var requires --run when generating');
+  envVarsFlag(flags);
   const config = loadProjectConfig(stringFlag(flags, 'config'));
   const profileName = stringFlag(flags, 'profile');
   const profile = profileName ? config.profiles?.[profileName] : undefined;
@@ -148,6 +163,7 @@ async function run(flags: Flags): Promise<void> {
     iterationData: stringFlag(flags, 'iteration-data'),
     timeoutMs: numberFlag(flags, 'run-timeout'),
     bail: Boolean(flags.bail),
+    envVars: envVarsFlag(flags),
   });
   console.log(`Completed ${result.requests} requests and ${result.assertions} assertions with ${result.failures} failure(s)`);
   if (result.failures) process.exitCode = 1;
@@ -180,6 +196,7 @@ async function main(): Promise<void> {
     ...(stringFlag(flags, 'iteration-data') ? { 'iteration-data': stringFlag(flags, 'iteration-data')! } : {}),
     ...(stringFlag(flags, 'run-timeout') ? { 'run-timeout': stringFlag(flags, 'run-timeout')! } : {}),
     bail: Boolean(flags.bail),
+    ...(Array.isArray(flags['env-var']) ? { 'env-var': flags['env-var'] } : {}),
   });
 }
 

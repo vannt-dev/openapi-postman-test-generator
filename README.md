@@ -26,6 +26,7 @@ The core generator is deterministic. An optional AI planner uses structured mode
 - Optional missing-field, invalid-enum, boundary, and unauthorized cases
 - Named environment profiles and JSON/CSV iteration data
 - Safe mode that excludes `DELETE` operations
+- Setup and teardown requests, async job polling, and runtime variables such as OTPs
 - Newman execution with CLI, JSON, JUnit, and standalone HTML reports
 - Per-request HTML reporting with status, duration, and assertion counts
 - Provider-neutral AI planner with schema-validated output and fallback providers
@@ -232,6 +233,60 @@ ai:
 
 Select a profile with `--profile staging`. Base variables are merged with profile variables, with profile values taking precedence. A login operation can bootstrap later authenticated requests by mapping its returned token to the security variable (for example, `bearerAuth_token`) and placing login first in `operationOrder`.
 
+## Setup, teardown, async jobs, and OTP
+
+OpenAPI does not describe seed data, background jobs, or one-time passwords, so the generator
+does not guess them. Declare them in the project configuration instead:
+
+```yaml
+setup:
+  - name: Seed tenant
+    method: POST
+    url: /admin/seed                  # a leading "/" is prefixed with {{baseUrl}}
+    headers: { X-Admin-Key: "{{adminKey}}" }
+    body: { name: test }              # objects are sent as JSON, strings as raw text
+    expectStatus: [201]               # default: any 2xx
+    extract: { tenantId: $.id }       # stored as a collection variable
+teardown:
+  - name: Delete tenant
+    method: DELETE
+    url: /admin/tenants/{{tenantId}}
+asyncOperations:
+  - operationId: createExport
+    statusJsonPath: $.status
+    successValues: [done]
+    failureValues: [failed]
+    intervalMs: 1000                  # default 1000
+    maxAttempts: 30                   # default 30
+    extract: { exportUrl: $.url }     # applied when the job succeeds
+```
+
+- `setup` requests run first, in a `Setup` folder; `teardown` requests run last, in a
+  `Teardown` folder. They are explicit, so safe mode keeps them. They send no API credentials
+  unless `inheritAuth: true` is set, because their URLs may point outside the API.
+- Extracted values (and identifiers captured by `variableMappings`) also replace a variable of
+  the same name in the environment, so placeholders in the generated environment file do not
+  hide them.
+- Each async operation gets a `Poll: <operationId>` request right after it. By default it polls
+  the URL in the operation's 2xx `Location` response header, resolved against the request URL;
+  set `statusUrl` (for example `/exports/{{exportId}}`) to poll a fixed endpoint instead. The
+  poll repeats until a success or failure value appears, or fails after `maxAttempts`. It fails
+  at once, without retrying, when there is no status URL.
+- The poll reuses the operation's credentials, API-key headers, and cookies. Set
+  `inheritAuth: false` when the status URL is a presigned storage link that rejects them.
+  Newman follows redirects, so a `303 See Other` API should use `statusUrl`.
+- For OTP flows, either fetch the code from a test-only endpoint with a `setup` request and
+  `extract: { otp: $.code }`, or pass it when running:
+
+  ```bash
+  node dist/index.js run --collection ./generated/api.collection.json --env-var otp=123456
+  ```
+
+  `--env-var KEY=VALUE` can be repeated and also works with `generate --run`. The values are
+  masked in this tool's error messages, but they are visible to other local processes and
+  Newman writes the environment into `newman.json`; prefer CI secrets for real credentials and
+  do not publish the report directory.
+
 ## Development
 
 ```bash
@@ -245,7 +300,7 @@ The test suite includes Swagger 2.0 and OpenAPI 3.x smoke tests, regression test
 
 ## Safety and limitations
 
-OpenAPI describes an HTTP contract, not every business prerequisite. Seed data, OTP flows, payment providers, asynchronous jobs, and environment-specific cleanup can still require configuration. Use `--safe` first against unfamiliar APIs, review generated requests, and never store secrets in committed environment files. Enabling AI sends the summarized API contract to the selected provider; do not enable it for specifications that your provider is not authorized to process.
+OpenAPI describes an HTTP contract, not every business prerequisite. Seed data, OTP flows, asynchronous jobs, and environment cleanup need explicit configuration (see [Setup, teardown, async jobs, and OTP](#setup-teardown-async-jobs-and-otp)); payment providers and other third-party flows are not automated. Teardown requests do not run when `--bail` stops a run early or Newman is interrupted, so use a disposable test environment. Use `--safe` first against unfamiliar APIs, review generated requests, and never store secrets in committed environment files. Enabling AI sends the summarized API contract to the selected provider; do not enable it for specifications that your provider is not authorized to process.
 
 ## License
 
