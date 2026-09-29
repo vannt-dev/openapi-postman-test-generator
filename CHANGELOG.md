@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 - 2026-09-29
+
+- Add `setup` and `teardown` requests to the project config for seed data and cleanup. They run in `Setup` and `Teardown` folders, are kept in safe mode, support `expectStatus` and JSONPath `extract`, and send no API credentials unless `inheritAuth: true`.
+- Add `asyncOperations`: a `Poll: <operationId>` request follows the operation and polls its 2xx `Location` header (resolved against the request URL) or a fixed `statusUrl` until a success or failure value, with `intervalMs` and `maxAttempts`. It reuses the operation's credentials unless `inheritAuth: false`.
+- Add a repeatable `--env-var KEY=VALUE` option to `run` and `generate --run` for runtime values such as OTPs; values are masked in error messages.
+- Fix identifiers captured by `variableMappings` (including a login token mapped to `bearerAuth_token`) being hidden by placeholders in the generated environment file when running with `--environment`.
+- `PostmanUrl.path` is now optional in the TypeScript declarations.
+
 ## 0.5.0 - 2026-09-24
 
 - Require Node.js 22 or newer; Node.js 20 reached end of life on 2026-04-30. CI tests Node.js 22 and 24.
