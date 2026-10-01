@@ -61,7 +61,7 @@ try {
     'void collection;',
   ].join('\n'));
   execFileSync(process.execPath, [require.resolve('typescript/bin/tsc'), '--noEmit', '--strict',
-    '--skipLibCheck', '--target', 'ES2020', '--module', 'commonjs', '--moduleResolution', 'node', 'consumer.ts'],
+    '--skipLibCheck', '--target', 'ES2020', '--module', 'node16', '--moduleResolution', 'node16', 'consumer.ts'],
   { cwd: consumer, stdio: 'inherit', timeout: 30000 });
   console.log(`Package consumer smoke passed for ${manifest.name}@${manifest.version}: CLI, library, declarations`);
 } finally {
