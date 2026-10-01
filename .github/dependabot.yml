@@ -8,6 +8,11 @@ updates:
     groups:
       development-dependencies:
         dependency-type: development
+    ignore:
+      # typescript-eslint 8 accepts typescript <6.1.0; a newer one cannot be installed next to it.
+      # Remove this once typescript-eslint supports TypeScript 7.
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
