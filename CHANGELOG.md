@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `openapi-postman diff --old <spec> --new <spec>`: lists what changed between two versions of an API description and marks the changes that can break an existing client (a removed operation or success response, a new required parameter or property, a removed response property, a changed type, a removed request enum value, newly required credentials). It exits 1 when a breaking change is found unless `--allow-breaking` is given, and `--format json` prints the list for other tools. Swagger 2.0 and OpenAPI 3.x documents can be compared with each other. Also exported as `diffSpecs` and `formatSpecDiff`.
+
 ## 0.6.0 - 2026-09-29
 
 - Add `setup` and `teardown` requests to the project config for seed data and cleanup. They run in `Setup` and `Teardown` folders, are kept in safe mode, support `expectStatus` and JSONPath `extract`, and send no API credentials unless `inheritAuth: true`.

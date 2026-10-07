@@ -31,6 +31,7 @@ The core generator is deterministic. An optional AI planner uses structured mode
 - Per-request HTML reporting with status, duration, and assertion counts
 - Provider-neutral AI planner with schema-validated output and fallback providers
 - Built-in OpenAI SDK, Codex CLI, Claude Code, and Antigravity CLI adapters
+- `diff` command that lists the changes between two versions of a spec and fails on the ones that break clients
 - Safe custom-command adapter and a public provider registry for future integrations
 
 ## Requirements
@@ -124,6 +125,37 @@ node dist/index.js run \
   --run-timeout 300000 \
   --bail
 ```
+
+## Compare two versions of a spec
+
+Before regenerating tests for a new version of an API, see what changed and whether existing clients survive it:
+
+```bash
+openapi-postman diff --old ./openapi.v1.yaml --new ./openapi.v2.yaml
+```
+
+```text
+Breaking changes (2)
+  DELETE /pets/{petId}  operation removed
+  POST /pets  request body application/json: kind  new required property
+
+Non-breaking changes (1)
+  GET /pets  query parameter "cursor"  optional parameter added
+```
+
+The command exits with status 1 when it finds a breaking change, so a pipeline can stop on it; `--allow-breaking` keeps the exit status at 0, and `--format json` prints the changes as JSON (`severity`, `code`, `operation`, `location`, `message`). Either side may be a file or a URL, and a Swagger 2.0 document can be compared with the OpenAPI 3.x one that replaced it.
+
+A change is breaking when a client written against the old version can fail against the new one:
+
+| Where | Breaking | Not breaking |
+| --- | --- | --- |
+| Operations | removed | added, deprecated |
+| Parameters | new required one, became required, type changed, enum value removed | new optional one, removed, became optional, enum value added |
+| Request body | became required, media type removed, new required property, property became required, type changed | new optional property, property removed, media type added |
+| Responses | success (2xx) response removed, media type removed, property removed, property no longer required, type changed | response added, other response removed, property added, enum value added |
+| Security | an operation that needed no credentials now needs them | |
+
+Path parameters are matched by position, so renaming `{id}` to `{petId}` is not a change. Not compared: descriptions and examples, response headers, numeric and length limits, `additionalProperties`, callbacks, links and servers. A changed `oneOf` or `anyOf` is reported as non-breaking with a note to compare it by hand, because the command does not judge it.
 
 ## Optional AI planning
 
