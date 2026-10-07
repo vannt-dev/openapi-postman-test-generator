@@ -4,15 +4,17 @@ import * as path from 'path';
 import SwaggerParser from '@apidevtools/swagger-parser';
 import { planWithProviders } from './ai';
 import { loadProjectConfig } from './config';
+import { diffSpecs, formatSpecDiff } from './diff';
 import { OpenApiPostmanGenerator } from './generator';
 import { runCollection } from './runner';
 import { AgentPlan, OpenApiSpec, PostmanItem, ProjectConfig } from './types';
 
 type Flags = Record<string, string | boolean | string[]>;
 
-const BOOLEAN_FLAGS = new Set(['negative', 'safe', 'ai', 'run', 'bail', 'help']);
+const BOOLEAN_FLAGS = new Set(['negative', 'safe', 'ai', 'run', 'bail', 'help', 'allow-breaking']);
 const REPEATABLE_FLAGS = new Set(['env-var']);
 const GENERATE_FLAGS = new Set(['spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var']);
+const DIFF_FLAGS = new Set(['old', 'new', 'format', 'allow-breaking']);
 const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var']);
 
 function printUsage(exitCode = 1): never {
@@ -21,6 +23,7 @@ function printUsage(exitCode = 1): never {
 Usage:
   openapi-postman generate --spec <file-or-url> [options]
   openapi-postman run --collection <file> [options]
+  openapi-postman diff --old <file-or-url> --new <file-or-url> [options]
 
 Generate options:
   --out <file>             Collection output (default: generated/api.collection.json)
@@ -46,7 +49,11 @@ Run options:
   --run-timeout <ms>       Maximum total Newman runtime (default: 300000)
   --report-dir <directory> Report output directory (default: generated/reports)
   --bail                   Stop after the first failure
-  --env-var <key=value>    Runtime variable such as an OTP (repeatable)`);
+  --env-var <key=value>    Runtime variable such as an OTP (repeatable)
+
+Diff options:
+  --format <text|json>     Output format (default: text)
+  --allow-breaking         Exit 0 even when breaking changes are found`);
   process.exit(exitCode);
 }
 
@@ -169,6 +176,22 @@ async function run(flags: Flags): Promise<void> {
   if (result.failures) process.exitCode = 1;
 }
 
+async function diff(flags: Flags): Promise<void> {
+  validateFlags(flags, DIFF_FLAGS);
+  const oldLocation = stringFlag(flags, 'old');
+  const newLocation = stringFlag(flags, 'new');
+  if (!oldLocation || !newLocation) throw new Error('--old and --new are required');
+  const format = stringFlag(flags, 'format') || 'text';
+  if (format !== 'text' && format !== 'json') throw new Error('--format must be text or json');
+  // Two parser instances: one shared instance keeps the first document's references.
+  const oldSpec = await new SwaggerParser().validate(oldLocation);
+  const newSpec = await new SwaggerParser().validate(newLocation);
+  const result = diffSpecs(oldSpec, newSpec);
+  console.log(format === 'json' ? JSON.stringify(result, null, 2) : formatSpecDiff(result));
+  // A non-zero exit lets a pipeline stop a release that would break clients.
+  if (result.breaking && !flags['allow-breaking']) process.exitCode = 1;
+}
+
 function countRequests(items: PostmanItem[]): number {
   return items.reduce((total, item) => total + (item.request ? 1 : 0) + (item.item ? countRequests(item.item) : 0), 0);
 }
@@ -177,7 +200,7 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (!args.length) return printUsage();
   if (args.includes('--help') || args.includes('-h')) return printUsage(0);
-  const explicitCommand = ['generate', 'run'].includes(args[0]);
+  const explicitCommand = ['generate', 'run', 'diff'].includes(args[0]);
   const command = explicitCommand ? args.shift()! : 'generate';
   // Preserve compatibility with the original positional syntax.
   if (!explicitCommand && args[0] && !args[0].startsWith('--')) {
@@ -188,6 +211,7 @@ async function main(): Promise<void> {
   }
   const flags = parseFlags(args);
   if (command === 'run') return run(flags);
+  if (command === 'diff') return diff(flags);
   const generated = await generate(flags);
   if (flags.run) await run({
     collection: generated.collection,
