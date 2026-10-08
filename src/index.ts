@@ -5,15 +5,18 @@ import SwaggerParser from '@apidevtools/swagger-parser';
 import { planWithProviders } from './ai';
 import { loadProjectConfig } from './config';
 import { diffSpecs, formatSpecDiff } from './diff';
+import { toBrunoCollection } from './exporters/bruno';
+import { toK6Script } from './exporters/k6';
 import { OpenApiPostmanGenerator } from './generator';
 import { runCollection } from './runner';
-import { AgentPlan, OpenApiSpec, PostmanItem, ProjectConfig } from './types';
+import { AgentPlan, OpenApiSpec, PostmanCollection, PostmanEnvironment, PostmanItem, ProjectConfig } from './types';
 
 type Flags = Record<string, string | boolean | string[]>;
 
 const BOOLEAN_FLAGS = new Set(['negative', 'safe', 'ai', 'run', 'bail', 'help', 'allow-breaking']);
 const REPEATABLE_FLAGS = new Set(['env-var']);
-const GENERATE_FLAGS = new Set(['spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var']);
+const GENERATE_FLAGS = new Set(['spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var', 'bruno', 'k6']);
+const CONVERT_FLAGS = new Set(['collection', 'environment', 'bruno', 'k6']);
 const DIFF_FLAGS = new Set(['old', 'new', 'format', 'allow-breaking']);
 const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var']);
 
@@ -24,6 +27,7 @@ Usage:
   openapi-postman generate --spec <file-or-url> [options]
   openapi-postman run --collection <file> [options]
   openapi-postman diff --old <file-or-url> --new <file-or-url> [options]
+  openapi-postman convert --collection <file> [--environment <file>] --bruno <dir> | --k6 <file>
 
 Generate options:
   --out <file>             Collection output (default: generated/api.collection.json)
@@ -42,6 +46,8 @@ Generate options:
   --model <model>          Optional provider-specific model override
   --plan-out <file>        Save the structured AI plan
   --run                    Run the generated collection immediately
+  --bruno <directory>      Also write the tests as a Bruno collection folder
+  --k6 <file>              Also write the tests as a k6 script
 
 Run options:
   --environment <file>     Postman environment file
@@ -50,6 +56,12 @@ Run options:
   --report-dir <directory> Report output directory (default: generated/reports)
   --bail                   Stop after the first failure
   --env-var <key=value>    Runtime variable such as an OTP (repeatable)
+
+Convert options (a generated collection to another tool's format):
+  --collection <file>      Postman collection written by generate
+  --environment <file>     Postman environment written by generate
+  --bruno <directory>      Bruno collection folder to write
+  --k6 <file>              k6 script to write
 
 Diff options:
   --format <text|json>     Output format (default: text)
@@ -155,8 +167,56 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
   console.log(`Generated ${countRequests(collection.item)} requests`);
   console.log(`Collection:   ${collectionPath}`);
   console.log(`Environment:  ${environmentPath}`);
+  writeOtherFormats(flags, collection, environment);
   for (const warning of [...(agentPlan?.warnings || []), ...generator.getWarnings()]) console.warn(`Warning: ${warning}`);
   return { collection: collectionPath, environment: environmentPath };
+}
+
+/** Writes the Bruno folder and the k6 script when their flags are given. */
+function writeOtherFormats(flags: Flags, collection: PostmanCollection, environment?: PostmanEnvironment): void {
+  const brunoDirectory = stringFlag(flags, 'bruno');
+  if (brunoDirectory) {
+    const directory = path.resolve(brunoDirectory);
+    const files = toBrunoCollection(collection, environment);
+    for (const file of files) {
+      const target = path.join(directory, file.path);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, file.content, 'utf8');
+    }
+    console.log(`Bruno:        ${directory} (${files.length} files)`);
+  }
+  const k6File = stringFlag(flags, 'k6');
+  if (k6File) {
+    const target = path.resolve(k6File);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, toK6Script(collection, environment, { fileName: path.basename(target) }), 'utf8');
+    console.log(`k6:           ${target}`);
+  }
+}
+
+function readJsonFile<T>(file: string, label: string): T {
+  const resolved = path.resolve(file);
+  if (!fs.existsSync(resolved)) throw new Error(`${label} file not found: ${resolved}`);
+  try {
+    return JSON.parse(fs.readFileSync(resolved, 'utf8')) as T;
+  } catch (error) {
+    // The ES2020 library has no `cause` option on the Error constructor.
+    const failure: Error & { cause?: unknown } = new Error(`${label} file is not valid JSON: ${resolved} (${error instanceof Error ? error.message : String(error)})`);
+    failure.cause = error;
+    throw failure;
+  }
+}
+
+function convert(flags: Flags): void {
+  validateFlags(flags, CONVERT_FLAGS);
+  const collectionFile = stringFlag(flags, 'collection');
+  if (!collectionFile) throw new Error('--collection is required');
+  if (!stringFlag(flags, 'bruno') && !stringFlag(flags, 'k6')) throw new Error('Give --bruno <directory>, --k6 <file>, or both');
+  const collection = readJsonFile<PostmanCollection>(collectionFile, 'Collection');
+  if (!Array.isArray(collection.item) || !collection.info?.name) throw new Error(`Not a Postman collection: ${path.resolve(collectionFile)}`);
+  const environmentFile = stringFlag(flags, 'environment');
+  const environment = environmentFile ? readJsonFile<PostmanEnvironment>(environmentFile, 'Environment') : undefined;
+  writeOtherFormats(flags, collection, environment);
 }
 
 async function run(flags: Flags): Promise<void> {
@@ -200,7 +260,7 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (!args.length) return printUsage();
   if (args.includes('--help') || args.includes('-h')) return printUsage(0);
-  const explicitCommand = ['generate', 'run', 'diff'].includes(args[0]);
+  const explicitCommand = ['generate', 'run', 'diff', 'convert'].includes(args[0]);
   const command = explicitCommand ? args.shift()! : 'generate';
   // Preserve compatibility with the original positional syntax.
   if (!explicitCommand && args[0] && !args[0].startsWith('--')) {
@@ -212,6 +272,7 @@ async function main(): Promise<void> {
   const flags = parseFlags(args);
   if (command === 'run') return run(flags);
   if (command === 'diff') return diff(flags);
+  if (command === 'convert') return convert(flags);
   const generated = await generate(flags);
   if (flags.run) await run({
     collection: generated.collection,
