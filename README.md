@@ -32,6 +32,7 @@ The core generator is deterministic. An optional AI planner uses structured mode
 - Provider-neutral AI planner with schema-validated output and fallback providers
 - Built-in OpenAI SDK, Codex CLI, Claude Code, and Antigravity CLI adapters
 - `diff` command that lists the changes between two versions of a spec and fails on the ones that break clients
+- The same tests as a [Bruno](https://www.usebruno.com/) collection folder or a [k6](https://k6.io/) script, with the same checks, variable capture and job polling
 - Safe custom-command adapter and a public provider registry for future integrations
 
 ## Requirements
@@ -124,6 +125,40 @@ node dist/index.js run \
   --run-timeout 300000 \
   --bail
 ```
+
+## Bruno and k6 output
+
+The generated tests can also be written for Bruno and for k6, next to the Postman files or from a collection generated earlier:
+
+```bash
+# While generating
+node dist/index.js generate --spec ./openapi.yaml --bruno ./generated/bruno --k6 ./generated/api.k6.js
+
+# From an existing collection
+node dist/index.js convert \
+  --collection ./generated/api.collection.json \
+  --environment ./generated/api.environment.json \
+  --bruno ./generated/bruno --k6 ./generated/api.k6.js
+```
+
+Run them with the tools themselves:
+
+```bash
+cd generated/bruno && bru run -r --env "<environment name>" --env-var bearerAuth_token=...
+k6 run -e baseUrl=https://staging.example.com -e bearerAuth_token=... generated/api.k6.js
+```
+
+Requests, headers, bodies, authentication and variables are written in each tool's own form: `.bru` files in numbered folders with an environment file for Bruno, one script with a request table for k6. The test scripts are the collection's own. Each output carries a small stand-in for the part of Postman's `pm` object those scripts use, so a status check, a response-time limit, a schema assertion, an extracted identifier or a polled background job behaves the same in all three tools. In Bruno every `pm.test` is a test; in k6 it is a check, and the script's threshold fails the run when any check fails.
+
+Things to know:
+
+- The schema assertion uses a validator written for these outputs that covers the keywords the generator emits (types, `required`, `properties`, `additionalProperties`, `items`, `enum`, `const`, numeric and length bounds, `pattern`, `allOf`/`anyOf`/`oneOf`). Other keywords are ignored rather than failed. Postman and Newman keep using Ajv.
+- The k6 script runs one virtual user once. Raise `vus` and `iterations` in its `options`, or pass `--vus` and `--duration`, to use it as a load test; the checks stay the same.
+- A Bruno collection that has both folders and requests in a set order (setup, ordered operations, teardown) gets a `Requests` folder for the ordered ones, because Bruno runs subfolders before the requests beside them.
+- Multipart file fields are sent as text parts in k6, and `--iteration-data` files are for Newman only.
+- Secret environment values are not written out: Bruno lists them under `vars:secret`, and k6 takes them with `-e`.
+
+Also exported as `toBrunoCollection` and `toK6Script`.
 
 ## Compare two versions of a spec
 
@@ -327,7 +362,7 @@ npm run check
 npm pack --dry-run
 ```
 
-The test suite includes Swagger 2.0 and OpenAPI 3.x smoke tests, regression tests, provider contract and fallback tests, a real local HTTP/Newman end-to-end run, and Windows runner tests. Newman remains an external runtime tool so its legacy transitive dependencies are not shipped to library consumers.
+The test suite includes Swagger 2.0 and OpenAPI 3.x smoke tests, regression tests, provider contract and fallback tests, a real local HTTP/Newman end-to-end run, tests that run the generated k6 script and Bruno scripts against stand-ins for those tools, and Windows runner tests. Newman remains an external runtime tool so its legacy transitive dependencies are not shipped to library consumers.
 
 ## Safety and limitations
 
