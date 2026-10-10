@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-10-10
 
 - Add Bruno and k6 output. `generate --bruno <directory>` and `--k6 <file>` write the tests as a Bruno collection folder and as a k6 script next to the Postman files, and `openapi-postman convert --collection <file> [--environment <file>]` does the same for a collection generated earlier. Requests, headers, bodies, authentication and variables are native to each tool; the test scripts are the collection's own, run on a small stand-in for the part of Postman's `pm` object they use, so status and response-time checks, schema assertions, identifier capture, setup and teardown, and async job polling behave as they do in Postman. In k6 every test is a check and a threshold fails the run when one fails. Schema assertions in these two outputs use a built-in validator for the keywords the generator emits; other keywords are ignored. Also exported as `toBrunoCollection` and `toK6Script`.
 
