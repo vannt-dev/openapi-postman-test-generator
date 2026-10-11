@@ -66,6 +66,8 @@
   "overrides": {
     "lodash": "^4.18.0",
     "qs": "^6.15.2",
-    "handlebars": "^4.7.10"
+    "handlebars": "^4.7.10",
+    "node-forge": "^1.4.0",
+    "flatted": "^3.4.2"
   }
 }
