@@ -19,6 +19,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         node-version: [22, 24]
+        # One Windows leg is enough to catch a Windows problem; the second doubled the
+        # slowest part of the run for nothing.
+        exclude:
+          - os: windows-latest
+            node-version: 24
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
