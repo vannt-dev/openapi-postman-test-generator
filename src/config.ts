@@ -69,6 +69,9 @@ const projectConfigSchema = z.object({
   setup: z.array(workflowRequestSchema).optional(),
   teardown: z.array(workflowRequestSchema).optional(),
   asyncOperations: z.array(asyncOperationSchema).optional(),
+  includeTags: z.array(z.string().min(1)).optional(),
+  excludeTags: z.array(z.string().min(1)).optional(),
+  oauthClientCredentials: z.boolean().optional(),
   profiles: z.record(z.string(), z.object({
     baseUrl: z.string().min(1).optional(),
     variables: z.record(z.string(), z.string()).optional(),

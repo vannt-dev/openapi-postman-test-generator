@@ -26,6 +26,10 @@ The core generator is deterministic. An optional AI planner uses structured mode
 - Optional missing-field, invalid-enum, boundary, and unauthorized cases
 - Named environment profiles and JSON/CSV iteration data
 - Safe mode that excludes `DELETE` operations
+- A tag filter (`--tag`, `--exclude-tag`) to generate the tests of a part of the API
+- A coverage report: which operations have a request and which documented responses a test expects
+- OAuth2 client credentials: the collection can start by fetching its own access token
+- A GitHub Action that generates, runs and reports in one step
 - Setup and teardown requests, async job polling, and runtime variables such as OTPs
 - Newman execution with CLI, JSON, JUnit, and standalone HTML reports
 - Per-request HTML reporting with status, duration, and assertion counts
@@ -99,6 +103,17 @@ node dist/index.js generate \
   --config ./examples/openapi-postman.config.yaml
 ```
 
+Generate the tests of a part of the API. A tag filter keeps the operations that carry one of the tags, or
+leaves out the ones that do; names are compared without regard to case, a list may be comma-separated or
+the flag repeated, and `Default` names the operations without tags:
+
+```bash
+node dist/index.js generate --spec ./openapi.yaml --tag Orders,Payments --exclude-tag Internal
+```
+
+`includeTags` and `excludeTags` in the configuration file hold the usual choice; a flag adds to it. Setup
+and teardown requests are never filtered.
+
 The legacy syntax remains supported:
 
 ```bash
@@ -125,6 +140,79 @@ node dist/index.js run \
   --run-timeout 300000 \
   --bail
 ```
+
+## What the collection covers
+
+`generate` ends with a summary of what the collection tests of the document:
+
+```
+Generated 14 requests
+Coverage:     9/10 operations, 12/21 documented responses (1 operation left out: 1 in safe mode)
+Uncovered:    9 documented error responses have no test; --negative generates them where it can
+```
+
+An operation is covered when the collection holds a request for it; the ones left out are counted with the
+reason (disabled in the configuration, the tag filter, safe mode). A documented response is covered when a
+generated request is written to expect it: the success responses always, the error responses that the
+negative variants provoke (`--negative`). It is a statement about the collection, not about a run.
+
+`--coverage <file>` writes the whole report as JSON: every operation with its tags, whether it is in the
+collection, the responses the document describes and the ones a request expects. `default` is not a status
+and is not counted.
+
+```bash
+node dist/index.js generate --spec ./openapi.yaml --negative --coverage ./generated/api.coverage.json
+```
+
+## OAuth2 client credentials
+
+An API protected by OAuth2 needs an access token before its first request. By default the token is a
+value you supply (`<scheme>_token` in the environment). With `--oauth-token`, or `oauthClientCredentials: true`
+in the configuration, the collection fetches it itself: for every security scheme with a client credentials
+flow (`flows.clientCredentials` in OpenAPI 3, `flow: application` in Swagger 2.0) a `Get access token`
+request is put first in the `Setup` folder. It posts `grant_type=client_credentials` with the client id,
+the client secret and the scopes of the document to the token endpoint, and keeps `access_token` where the
+other requests read it.
+
+```bash
+node dist/index.js generate --spec ./openapi.yaml --oauth-token --run \
+  --env-var oauth_clientId=my-client --env-var oauth_clientSecret="$CLIENT_SECRET"
+```
+
+The environment gains `<scheme>_clientId` and `<scheme>_clientSecret` (empty, to fill in or to pass with
+`--env-var`) and `<scheme>_tokenUrl` (the endpoint the document names, to override for another
+environment). The token request sends no API credentials. When no scheme has that flow, `generate` says so
+and changes nothing. The same request is written to the Bruno folder and the k6 script.
+
+## GitHub Action
+
+```yaml
+# .github/workflows/api-tests.yml
+name: API tests
+on: [pull_request]
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # start the API under test here, or point base-url at a deployed one
+      - uses: vannt-dev/openapi-postman-test-generator@v0.9.0
+        with:
+          spec: openapi.yaml
+          base-url: http://localhost:3000 # optional
+          negative: true # optional
+          exclude-tag: Internal # optional; tag and exclude-tag take a list
+          oauth-token: true # optional
+          env-vars: | # optional, one KEY=VALUE a line
+            oauth_clientId=ci-client
+            oauth_clientSecret=${{ secrets.API_CLIENT_SECRET }}
+```
+
+The action generates the collection, the environment and the coverage report into `generated/`
+(`output-dir`), adds the coverage lines and the result of the run to the job summary, and fails the job
+when an assertion fails. `run: false` only generates. Its outputs are `collection`, `environment`,
+`coverage`, `report-dir` (with `report.html`, `junit.xml` and `newman.json`) and `failures`. It runs on
+Linux and macOS runners.
 
 ## Bruno and k6 output
 
@@ -277,6 +365,9 @@ variableMappings:
     variable: userId
     targetOperationIds: [getUser, deleteUser]
 disabledOperations: [chargeCreditCard]
+includeTags: [Orders, Payments]
+excludeTags: [Internal]
+oauthClientCredentials: true
 negativeScenarios:
   - operationId: createUser
     name: email is required

@@ -115,6 +115,9 @@ export interface SecurityScheme {
   bearerFormat?: string;
   flow?: string;
   flows?: unknown;
+  /** Swagger 2.0 keeps the token endpoint and the scopes on the scheme itself. */
+  tokenUrl?: string;
+  scopes?: Record<string, string>;
 }
 
 export interface PostmanVariable { key: string; value: string; type?: string; description?: string }
@@ -234,6 +237,12 @@ export interface ProjectConfig {
   setup?: WorkflowRequest[];
   teardown?: WorkflowRequest[];
   asyncOperations?: AsyncOperation[];
+  /** Only the operations that carry one of these tags ("Default" names the untagged ones). */
+  includeTags?: string[];
+  /** Leave out the operations that carry one of these tags. */
+  excludeTags?: string[];
+  /** Start the collection by fetching an OAuth2 client credentials token for the schemes that have that flow. */
+  oauthClientCredentials?: boolean;
   profiles?: Record<string, {
     baseUrl?: string;
     variables?: Record<string, string>;
@@ -241,6 +250,31 @@ export interface ProjectConfig {
   }>;
   ai?: AiConfig;
 }
+/** Why an operation of the document has no request in the collection. */
+export type CoverageSkipReason = 'disabled' | 'tag filter' | 'safe mode';
+
+export interface CoverageOperation {
+  operationId: string;
+  method: string;
+  path: string;
+  tags: string[];
+  /** Whether the collection holds a request for it. */
+  included: boolean;
+  reason?: CoverageSkipReason;
+  /** The responses the document describes for it, "default" set aside. */
+  documented: string[];
+  /** The documented responses that a generated request expects. */
+  covered: string[];
+}
+
+/** What of the document the generated collection tests: by design, not by what a run returned. */
+export interface CoverageReport {
+  operations: { total: number; covered: number; skipped: Array<{ operationId: string; method: string; path: string; reason: CoverageSkipReason }> };
+  /** Documented responses of the operations that are in the collection. */
+  responses: { total: number; covered: number; uncovered: Array<{ operationId: string; method: string; path: string; status: string }> };
+  byOperation: CoverageOperation[];
+}
+
 export interface PostmanEnvironment {
   name: string;
   values: Array<{ key: string; value: string; enabled: boolean; type: 'default' | 'secret' }>;

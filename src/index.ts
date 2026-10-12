@@ -9,13 +9,13 @@ import { toBrunoCollection } from './exporters/bruno';
 import { toK6Script } from './exporters/k6';
 import { OpenApiPostmanGenerator } from './generator';
 import { runCollection } from './runner';
-import { AgentPlan, OpenApiSpec, PostmanCollection, PostmanEnvironment, PostmanItem, ProjectConfig } from './types';
+import { AgentPlan, CoverageReport, OpenApiSpec, PostmanCollection, PostmanEnvironment, PostmanItem, ProjectConfig } from './types';
 
 type Flags = Record<string, string | boolean | string[]>;
 
-const BOOLEAN_FLAGS = new Set(['negative', 'safe', 'ai', 'run', 'bail', 'help', 'allow-breaking']);
-const REPEATABLE_FLAGS = new Set(['env-var']);
-const GENERATE_FLAGS = new Set(['spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var', 'bruno', 'k6']);
+const BOOLEAN_FLAGS = new Set(['negative', 'safe', 'ai', 'run', 'bail', 'help', 'allow-breaking', 'oauth-token']);
+const REPEATABLE_FLAGS = new Set(['env-var', 'tag', 'exclude-tag']);
+const GENERATE_FLAGS = new Set(['tag', 'exclude-tag', 'coverage', 'oauth-token', 'spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var', 'bruno', 'k6']);
 const CONVERT_FLAGS = new Set(['collection', 'environment', 'bruno', 'k6']);
 const DIFF_FLAGS = new Set(['old', 'new', 'format', 'allow-breaking']);
 const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var']);
@@ -38,6 +38,11 @@ Generate options:
   --response-time <ms>     Response-time assertion threshold
   --negative               Generate negative test variants
   --safe                   Skip DELETE operations
+  --tag <names>            Only the operations with one of these tags (repeatable, or
+                           comma-separated; "Default" names the untagged ones)
+  --exclude-tag <names>    Leave out the operations with one of these tags
+  --oauth-token            Start by fetching an OAuth2 client credentials token
+  --coverage <file>        Write which operations and documented responses have a test
   --ai                     Use an AI provider to plan workflows and variable mappings
   --ai-provider <name>     Provider: openai, codex, claude, antigravity, or configured command
   --ai-fallback <names>    Comma-separated fallback providers
@@ -104,6 +109,32 @@ function envVarsFlag(flags: Flags): Record<string, string> | undefined {
   }));
 }
 
+/** A repeatable flag whose values may also be comma-separated: --tag a,b --tag c. */
+function listFlag(flags: Flags, key: string): string[] {
+  const values = flags[key];
+  return (Array.isArray(values) ? values : []).flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
+}
+
+const SKIP_REASON_TEXT = { disabled: 'disabled in the config', 'tag filter': 'by the tag filter', 'safe mode': 'in safe mode' } as const;
+
+/** The lines `generate` prints about what the collection covers of the document. */
+function coverageLines(coverage: CoverageReport, negative: boolean): string[] {
+  const { operations, responses } = coverage;
+  const reasons = (Object.keys(SKIP_REASON_TEXT) as Array<keyof typeof SKIP_REASON_TEXT>)
+    .map(reason => ({ reason, count: operations.skipped.filter(entry => entry.reason === reason).length }))
+    .filter(item => item.count)
+    .map(item => `${item.count} ${SKIP_REASON_TEXT[item.reason]}`);
+  const leftOut = operations.skipped.length
+    ? ` (${operations.skipped.length} operation${operations.skipped.length === 1 ? '' : 's'} left out: ${reasons.join(', ')})`
+    : '';
+  const lines = [`Coverage:     ${operations.covered}/${operations.total} operations, ${responses.covered}/${responses.total} documented responses${leftOut}`];
+  const errors = responses.uncovered.filter(entry => /^[45]/.test(entry.status)).length;
+  const count = (n: number, noun: string): string => `${n} documented ${noun}${n === 1 ? ' has' : 's have'} no test`;
+  if (errors && !negative) lines.push(`Uncovered:    ${count(errors, 'error response')}; --negative generates them where it can`);
+  else if (responses.uncovered.length) lines.push(`Uncovered:    ${count(responses.uncovered.length, 'response')}; --coverage <file> lists them`);
+  return lines;
+}
+
 function numberFlag(flags: Flags, key: string): number | undefined {
   const raw = stringFlag(flags, key);
   if (raw === undefined) return undefined;
@@ -154,6 +185,10 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
     operationOrder: agentPlan?.operationOrder || config.operationOrder,
     variableMappings: agentPlan?.variableMappings || config.variableMappings,
     negativeScenarios: agentPlan?.negativeScenarios || config.negativeScenarios,
+    // a flag adds to what the config lists: the file holds the usual choice, the flag one run's
+    includeTags: [...(config.includeTags || []), ...listFlag(flags, 'tag')],
+    excludeTags: [...(config.excludeTags || []), ...listFlag(flags, 'exclude-tag')],
+    oauthClientCredentials: Boolean(flags['oauth-token']) || config.oauthClientCredentials,
   };
   const generator = new OpenApiPostmanGenerator(spec, merged);
   const collection = generator.generate();
@@ -167,6 +202,15 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
   console.log(`Generated ${countRequests(collection.item)} requests`);
   console.log(`Collection:   ${collectionPath}`);
   console.log(`Environment:  ${environmentPath}`);
+  const coverage = generator.getCoverage();
+  for (const line of coverageLines(coverage, Boolean(merged.includeNegative))) console.log(line);
+  const coverageFile = stringFlag(flags, 'coverage');
+  if (coverageFile) {
+    const target = path.resolve(coverageFile);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `${JSON.stringify(coverage, null, 2)}\n`, 'utf8');
+    console.log(`Coverage file: ${target}`);
+  }
   writeOtherFormats(flags, collection, environment);
   for (const warning of [...(agentPlan?.warnings || []), ...generator.getWarnings()]) console.warn(`Warning: ${warning}`);
   return { collection: collectionPath, environment: environmentPath };
