@@ -1,0 +1,146 @@
+name: OpenAPI Postman tests
+description: Generates API tests from an OpenAPI document as a Postman collection, runs them with Newman and reports what they cover.
+author: Van Nguyen
+branding:
+  icon: check-circle
+  color: orange
+
+inputs:
+  spec:
+    description: The OpenAPI 3 or Swagger 2 document, a file or a URL.
+    required: true
+  config:
+    description: A project configuration file (YAML or JSON).
+    required: false
+    default: ''
+  base-url:
+    description: The server to test, when it is not the one the document names.
+    required: false
+    default: ''
+  negative:
+    description: "'true' also generates the negative variants (missing fields, invalid values, no credentials)."
+    required: false
+    default: 'false'
+  safe:
+    description: "'true' leaves out DELETE operations."
+    required: false
+    default: 'false'
+  tag:
+    description: Only the operations with one of these tags, comma-separated or one a line.
+    required: false
+    default: ''
+  exclude-tag:
+    description: Leave out the operations with one of these tags, comma-separated or one a line.
+    required: false
+    default: ''
+  oauth-token:
+    description: "'true' starts the run by fetching an OAuth2 client credentials token; give the client as env-vars."
+    required: false
+    default: 'false'
+  run:
+    description: "'false' only generates the files and the coverage report."
+    required: false
+    default: 'true'
+  env-vars:
+    description: Runtime variables for the run, one KEY=VALUE a line; the place for secrets such as a client secret.
+    required: false
+    default: ''
+  output-dir:
+    description: Where the collection, the environment, the coverage report and the run reports are written.
+    required: false
+    default: generated
+
+outputs:
+  collection:
+    description: The path of the generated Postman collection.
+    value: ${{ steps.generate.outputs.collection }}
+  environment:
+    description: The path of the generated Postman environment.
+    value: ${{ steps.generate.outputs.environment }}
+  coverage:
+    description: The path of the coverage report (JSON).
+    value: ${{ steps.generate.outputs.coverage }}
+  report-dir:
+    description: The directory of the run reports (report.html, junit.xml, newman.json); empty when run is 'false'.
+    value: ${{ steps.run.outputs.report-dir }}
+  failures:
+    description: The number of failed assertions of the run; empty when run is 'false'.
+    value: ${{ steps.run.outputs.failures }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install openapi-postman-test-generator
+      shell: bash
+      # a full install: the build needs TypeScript and the run needs Newman, both dev dependencies
+      run: npm ci --no-audit --no-fund --prefix "$GITHUB_ACTION_PATH" && npm run build --prefix "$GITHUB_ACTION_PATH"
+      env:
+        npm_config_update_notifier: 'false'
+    - name: Generate the tests
+      id: generate
+      shell: bash
+      env:
+        SPEC: ${{ inputs.spec }}
+        CONFIG: ${{ inputs.config }}
+        BASE_URL: ${{ inputs.base-url }}
+        NEGATIVE: ${{ inputs.negative }}
+        SAFE: ${{ inputs.safe }}
+        TAG: ${{ inputs.tag }}
+        EXCLUDE_TAG: ${{ inputs.exclude-tag }}
+        OAUTH_TOKEN: ${{ inputs.oauth-token }}
+        OUT: ${{ inputs.output-dir }}
+      run: |
+        set -euo pipefail
+        args=(--spec "$SPEC" --out "$OUT/api.collection.json" --env "$OUT/api.environment.json" --coverage "$OUT/api.coverage.json")
+        if [ -n "$CONFIG" ]; then args+=(--config "$CONFIG"); fi
+        if [ -n "$BASE_URL" ]; then args+=(--base-url "$BASE_URL"); fi
+        if [ "$NEGATIVE" = "true" ]; then args+=(--negative); fi
+        if [ "$SAFE" = "true" ]; then args+=(--safe); fi
+        if [ "$OAUTH_TOKEN" = "true" ]; then args+=(--oauth-token); fi
+        while IFS= read -r tag; do
+          if [ -n "${tag//[[:space:]]/}" ]; then args+=(--tag "$tag"); fi
+        done <<< "$TAG"
+        while IFS= read -r tag; do
+          if [ -n "${tag//[[:space:]]/}" ]; then args+=(--exclude-tag "$tag"); fi
+        done <<< "$EXCLUDE_TAG"
+        work="${RUNNER_TEMP:-/tmp}"
+        node "$GITHUB_ACTION_PATH/dist/index.js" generate "${args[@]}" | tee "$work/openapi-postman-generate.txt"
+        {
+          echo "## API tests from \`$SPEC\`"
+          echo
+          echo '```'
+          grep -E '^(Generated|Coverage:|Uncovered:)' "$work/openapi-postman-generate.txt" || true
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        {
+          echo "collection=$OUT/api.collection.json"
+          echo "environment=$OUT/api.environment.json"
+          echo "coverage=$OUT/api.coverage.json"
+        } >> "$GITHUB_OUTPUT"
+    - name: Run the tests
+      id: run
+      if: inputs.run == 'true'
+      shell: bash
+      env:
+        ENV_VARS: ${{ inputs.env-vars }}
+        OUT: ${{ inputs.output-dir }}
+      run: |
+        set -uo pipefail
+        # Newman comes with the install above
+        export PATH="$GITHUB_ACTION_PATH/node_modules/.bin:$PATH"
+        args=(--collection "$OUT/api.collection.json" --environment "$OUT/api.environment.json" --report-dir "$OUT/reports")
+        while IFS= read -r pair; do
+          if [ -n "${pair//[[:space:]]/}" ]; then args+=(--env-var "$pair"); fi
+        done <<< "$ENV_VARS"
+        work="${RUNNER_TEMP:-/tmp}"
+        # a failed run still has a result to report: the step's own exit comes last
+        set +e
+        node "$GITHUB_ACTION_PATH/dist/index.js" run "${args[@]}" | tee "$work/openapi-postman-run.txt"
+        status=${PIPESTATUS[0]}
+        completed=$(grep -E '^Completed [0-9]+ requests' "$work/openapi-postman-run.txt" | tail -1 || true)
+        if [ -n "$completed" ]; then
+          echo "$completed. Reports: \`$OUT/reports\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "failures=$(sed -E 's/.* with ([0-9]+) failure.*/\1/' <<< "$completed")" >> "$GITHUB_OUTPUT"
+        fi
+        echo "report-dir=$OUT/reports" >> "$GITHUB_OUTPUT"
+        exit "$status"

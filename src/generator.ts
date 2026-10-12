@@ -2,7 +2,8 @@ import { exampleFor } from './generator/example';
 import { toJsonSchema } from './generator/json-schema';
 import { classifySecurityScheme } from './generator/security';
 import {
-  AsyncOperation, MediaType, NegativeScenario, OpenApiSpec, Operation, Parameter, PathItem, PostmanAuth,
+  AsyncOperation, CoverageOperation, CoverageReport, CoverageSkipReason,
+  MediaType, NegativeScenario, OpenApiSpec, Operation, Parameter, PathItem, PostmanAuth,
   PostmanBody, PostmanCollection, PostmanEnvironment, PostmanEvent, PostmanFormEntry,
   PostmanHeader, PostmanItem, PostmanQueryParam, PostmanUrl, PostmanVariable,
   Reference, RequestBody, Response, Schema, SecurityScheme, VariableMapping, WorkflowRequest,
@@ -39,7 +40,13 @@ export interface GeneratorOptions {
   setup?: WorkflowRequest[];
   teardown?: WorkflowRequest[];
   asyncOperations?: AsyncOperation[];
+  includeTags?: string[];
+  excludeTags?: string[];
+  oauthClientCredentials?: boolean;
 }
+
+/** The tag an operation without tags is filed under, as a folder and for the tag filter. */
+const DEFAULT_TAG = 'Default';
 
 interface OperationEntry { route: string; method: string; pathItem: PathItem; operation: Operation; index: number }
 
@@ -48,6 +55,11 @@ export class OpenApiPostmanGenerator {
   private readonly responseTimeMs: number;
   private readonly variables = new Map<string, PostmanVariable>();
   private readonly warnings: string[] = [];
+  /** One entry per operation of the document, filled by generate(). */
+  private coverage: Array<CoverageOperation & { index: number }> | undefined;
+  private readonly coverageByOperation = new Map<Operation, CoverageOperation>();
+  private readonly tokenRequests: WorkflowRequest[] = [];
+  private readonly tokenSchemes: string[] = [];
   private readonly resolveSchema = (schema: Schema): Schema => this.resolve<Schema>(schema);
 
   constructor(private readonly spec: OpenApiSpec, private readonly options: GeneratorOptions = {}) {
@@ -55,9 +67,79 @@ export class OpenApiPostmanGenerator {
     this.responseTimeMs = options.responseTimeMs || 2000;
     this.addVariable('baseUrl', this.baseUrl, 'API base URL');
     for (const [key, value] of Object.entries(options.variables || {})) this.addVariable(key, value, 'Configured variable');
+    if (options.oauthClientCredentials) this.planTokenRequests();
+  }
+
+  /**
+   * One request per security scheme with an OAuth2 client credentials flow: it asks the token endpoint for a
+   * token with the client id and secret of the environment and keeps it where the other requests read it.
+   */
+  private planTokenRequests(): void {
+    for (const [name, scheme] of Object.entries(this.securitySchemes())) {
+      if (scheme.type !== 'oauth2') continue;
+      const flow = (scheme.flows as { clientCredentials?: { tokenUrl?: string; scopes?: Record<string, string> } } | undefined)?.clientCredentials
+        || (scheme.flow === 'application' ? { tokenUrl: scheme.tokenUrl, scopes: scheme.scopes } : undefined);
+      if (!flow?.tokenUrl) continue;
+      const scopes = Object.keys(flow.scopes || {});
+      this.addVariable(`${name}_tokenUrl`, flow.tokenUrl, 'OAuth2 token endpoint');
+      this.tokenSchemes.push(name);
+      this.tokenRequests.push({
+        name: `Get access token (${name})`,
+        method: 'POST',
+        url: `{{${name}_tokenUrl}}`,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=client_credentials&client_id={{${name}_clientId}}&client_secret={{${name}_clientSecret}}`
+          + (scopes.length ? `&scope=${encodeURIComponent(scopes.join(' '))}` : ''),
+        extract: { [`${name}_token`]: '$.access_token' },
+      });
+    }
+    if (!this.tokenRequests.length) this.warnings.push('No OAuth2 client credentials flow was found: the access token is still a value to supply');
   }
 
   getWarnings(): string[] { return [...this.warnings]; }
+
+  /**
+   * What of the document the collection built by generate() tests: which operations have a request, and
+   * which of their documented responses a generated request expects. It is a statement about the
+   * collection, not about a run: a response counts when a request is written to expect it.
+   */
+  getCoverage(): CoverageReport {
+    if (!this.coverage) throw new Error('Call generate() first: the coverage is that of the collection it builds');
+    const byOperation: CoverageOperation[] = [...this.coverage].sort((left, right) => left.index - right.index).map(entry => ({
+      operationId: entry.operationId, method: entry.method, path: entry.path, tags: entry.tags, included: entry.included,
+      ...(entry.reason ? { reason: entry.reason } : {}),
+      documented: entry.documented, covered: entry.covered,
+    }));
+    const included = byOperation.filter(entry => entry.included);
+    const at = (entry: CoverageOperation) => ({ operationId: entry.operationId, method: entry.method, path: entry.path });
+    return {
+      operations: {
+        total: byOperation.length,
+        covered: included.length,
+        skipped: byOperation.filter(entry => !entry.included).map(entry => ({ ...at(entry), reason: entry.reason! })),
+      },
+      responses: {
+        total: included.reduce((sum, entry) => sum + entry.documented.length, 0),
+        covered: included.reduce((sum, entry) => sum + entry.covered.length, 0),
+        uncovered: included.flatMap(entry => entry.documented
+          .filter(status => !entry.covered.includes(status))
+          .map(status => ({ ...at(entry), status }))),
+      },
+      byOperation,
+    };
+  }
+
+  /** Notes that a generated request expects these status codes of an operation. */
+  private cover(operation: Operation, codes: Array<number | string>): void {
+    const entry = this.coverageByOperation.get(operation);
+    if (!entry) return;
+    for (const code of codes) {
+      const exact = String(code).toUpperCase();
+      const status = entry.documented.includes(exact) ? exact : `${exact[0]}XX`;
+      if (entry.documented.includes(status) && !entry.covered.includes(status)) entry.covered.push(status);
+    }
+    entry.covered.sort();
+  }
 
   generate(): PostmanCollection {
     const folders = new Map<string, PostmanItem[]>();
@@ -87,14 +169,37 @@ export class OpenApiPostmanGenerator {
     for (const asyncOperation of this.options.asyncOperations || []) {
       if (!knownOperations.has(asyncOperation.operationId)) this.warnings.push(`Async operation was not found: ${asyncOperation.operationId}`);
     }
+    const tagsOf = (operation: Operation): string[] => (operation.tags?.length ? operation.tags : [DEFAULT_TAG]).map(tag => tag.toLowerCase());
+    const includeTags = (this.options.includeTags || []).map(tag => tag.toLowerCase());
+    const excludeTags = (this.options.excludeTags || []).map(tag => tag.toLowerCase());
+    const knownTags = new Set(entries.flatMap(entry => tagsOf(entry.operation)));
+    for (const tag of [...(this.options.includeTags || []), ...(this.options.excludeTags || [])]) {
+      if (!knownTags.has(tag.toLowerCase())) this.warnings.push(`Tag was not found: ${tag}`);
+    }
+    this.coverage = [];
+    this.coverageByOperation.clear();
     for (const entry of this.sortEntries(entries)) {
       const id = this.operationId(entry.route, entry.method, entry.operation);
-      if (this.options.disabledOperations?.includes(id)) continue;
-      if (this.options.safeMode && entry.method === 'DELETE') {
-        this.warnings.push(`Skipped destructive operation in safe mode: ${id}`);
+      const tags = tagsOf(entry.operation);
+      const covered: CoverageOperation & { index: number } = {
+        operationId: id, method: entry.method, path: entry.route, tags: entry.operation.tags || [], included: true,
+        documented: Object.keys(entry.operation.responses).filter(code => code.toLowerCase() !== 'default').map(code => code.toUpperCase()).sort(),
+        covered: [], index: entry.index,
+      };
+      this.coverage.push(covered);
+      const leftOut = (reason: CoverageSkipReason): void => { covered.included = false; covered.reason = reason; };
+      if (this.options.disabledOperations?.includes(id)) { leftOut('disabled'); continue; }
+      if ((includeTags.length && !tags.some(tag => includeTags.includes(tag))) || tags.some(tag => excludeTags.includes(tag))) {
+        leftOut('tag filter');
         continue;
       }
-      const tag = entry.operation.tags?.[0] || 'Default';
+      if (this.options.safeMode && entry.method === 'DELETE') {
+        this.warnings.push(`Skipped destructive operation in safe mode: ${id}`);
+        leftOut('safe mode');
+        continue;
+      }
+      this.coverageByOperation.set(entry.operation, covered);
+      const tag = entry.operation.tags?.[0] || DEFAULT_TAG;
       const items = folders.get(tag) || [];
       const generated = [this.generateItem(entry.route, entry.method, entry.pathItem, entry.operation)];
       const asyncOperation = this.asyncOperationFor(id);
@@ -113,7 +218,8 @@ export class OpenApiPostmanGenerator {
       // A configured workflow may alternate between tags. Top-level requests are
       // required here because grouping them into tag folders changes execution order.
       item: [
-        ...this.workflowFolder('Setup', this.options.setup),
+        // the token first: a configured setup request may already need it
+        ...this.workflowFolder('Setup', [...this.tokenRequests, ...(this.options.setup || [])]),
         ...(this.options.operationOrder?.length
           ? orderedItems
           : [...folders].map(([name, item]) => ({ name, item }))),
@@ -147,6 +253,10 @@ export class OpenApiPostmanGenerator {
         add(`${key}_password`, '', 'secret');
       }
       if (kind === 'bearer') add(`${key}_token`, '', 'secret');
+      if (this.tokenSchemes.includes(key)) {
+        add(`${key}_clientId`, '', 'secret');
+        add(`${key}_clientSecret`, '', 'secret');
+      }
     }
     return { name, values, _postman_variable_scope: 'environment', _postman_exported_using: 'swagger-to-postman-agent' };
   }
@@ -262,6 +372,7 @@ export class OpenApiPostmanGenerator {
     const allowed = successEntries.filter(([code]) => /^2\d\d$/.test(code)).map(([code]) => Number(code));
     const hasWildcard = successEntries.some(([code]) => /^2XX$/i.test(code));
     const codes = allowed.length ? allowed : [200, 201, 202, 204];
+    this.cover(operation, hasWildcard ? ['2XX', ...allowed] : allowed);
     const responseDefinitions = Object.fromEntries(successEntries.map(([code, value]) => {
       const response = this.resolve<Response>(value);
       const contentType = this.responseContentType(response, operation);
@@ -848,7 +959,9 @@ export class OpenApiPostmanGenerator {
   private negativeCodes(operation: Operation, fallback: number[]): number[] {
     const declared = Object.keys(operation.responses).filter(code => /^4\d\d$/.test(code)).map(Number);
     const preferred = declared.filter(code => fallback.includes(code));
-    return preferred.length ? preferred : declared.length ? declared : fallback;
+    const codes = preferred.length ? preferred : declared.length ? declared : fallback;
+    this.cover(operation, codes);
+    return codes;
   }
 
   private negativeTest(name: string, codes: number[]): PostmanEvent {
