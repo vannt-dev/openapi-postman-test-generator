@@ -52,19 +52,20 @@ The core generator is deterministic. An optional AI planner uses structured mode
 Install the published CLI (Node.js 22 or newer):
 
 ```bash
-npm install --global openapi-postman-test-generator@0.8.0
+npm install --global openapi-postman-test-generator@0.9.0
 openapi-postman --help
 openapi-postman generate --spec ./openapi.yaml --out ./collection.json --env ./environment.json
 ```
 
-Upgrade with the same install command. Version 0.8.0 writes the tests as a Bruno collection or a k6
-script as well (`generate --bruno`, `generate --k6`, and `convert` for a collection generated
-earlier). Generated Postman collections are unchanged; see [release notes](CHANGELOG.md).
+Upgrade with the same install command. Version 0.9.0 generates for part of an API (`--tag`,
+`--exclude-tag`), reports how much of the document the tests cover (`--coverage`), signs in with
+OAuth2 client credentials (`--oauth-token`), and comes as a GitHub Action. Collections generated
+without these options are unchanged; see [release notes](CHANGELOG.md).
 
 For use as a library:
 
 ```bash
-npm install openapi-postman-test-generator@0.8.0
+npm install openapi-postman-test-generator@0.9.0
 ```
 
 ```javascript
