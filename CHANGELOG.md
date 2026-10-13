@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 - 2026-10-13
 
 - Add a tag filter. `generate --tag <names>` keeps the operations that carry one of the tags and `--exclude-tag <names>` leaves out the ones that do; both take a comma-separated list, may be repeated, compare names without regard to case, and know the untagged operations as `Default`. `includeTags` and `excludeTags` in the project configuration do the same, and a flag adds to them. A tag that no operation carries is reported as a warning. Setup and teardown requests are not filtered.
 - Add a coverage report. `generate` now prints how many operations of the document have a request and how many of their documented responses a generated request expects, with the operations it left out and why (disabled in the config, the tag filter, safe mode); `--coverage <file>` writes the whole report as JSON, every operation with its documented and covered responses. It describes the collection, not a run: a response counts when a request is written to expect it. `OpenApiPostmanGenerator.getCoverage()` returns the same report to library users.
