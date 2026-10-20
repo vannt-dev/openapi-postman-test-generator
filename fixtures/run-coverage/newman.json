@@ -1,0 +1,196 @@
+{
+  "run": {
+    "executions": [
+      {
+        "cursor": {
+          "ref": "d54ab416-1da2-4774-a686-554878a0a595"
+        },
+        "item": {
+          "id": "random-id-from-newman",
+          "name": "Health check"
+        },
+        "request": {
+          "method": "GET"
+        },
+        "response": {
+          "code": 200
+        },
+        "assertions": [
+          {
+            "assertion": "Status code is successful (2XX)"
+          }
+        ]
+      },
+      {
+        "cursor": {
+          "ref": "a10be654-c08c-40d2-9c9c-044331075e48"
+        },
+        "item": {
+          "id": "op:createPet",
+          "name": "createPet"
+        },
+        "request": {
+          "method": "POST"
+        },
+        "response": {
+          "code": 201
+        },
+        "assertions": [
+          {
+            "assertion": "Status code is successful (201)"
+          },
+          {
+            "assertion": "Response time is below 2000ms"
+          },
+          {
+            "assertion": "Response Content-Type is JSON"
+          },
+          {
+            "assertion": "Response matches the schema for its status code"
+          }
+        ]
+      },
+      {
+        "cursor": {
+          "ref": "13d3d604-8814-4c52-b8c6-054923eb0852"
+        },
+        "item": {
+          "id": "op:createPet#negative-1",
+          "name": "[Negative] createPet - missing name"
+        },
+        "request": {
+          "method": "POST"
+        },
+        "response": {
+          "code": 400
+        },
+        "assertions": [
+          {
+            "assertion": "Missing required field 'name' is rejected"
+          }
+        ]
+      },
+      {
+        "cursor": {
+          "ref": "8bd2a1f5-c0c7-471c-9f4d-58ec405cf429"
+        },
+        "item": {
+          "id": "op:listPets",
+          "name": "listPets"
+        },
+        "request": {
+          "method": "GET"
+        },
+        "response": {
+          "code": 200
+        },
+        "assertions": [
+          {
+            "assertion": "Status code is successful (200)"
+          },
+          {
+            "assertion": "Response time is below 2000ms"
+          },
+          {
+            "assertion": "Response Content-Type is JSON"
+          },
+          {
+            "assertion": "Response matches the schema for its status code"
+          }
+        ]
+      },
+      {
+        "cursor": {
+          "ref": "a91e1b6d-585b-4e5f-8d89-1b767fb74243"
+        },
+        "item": {
+          "id": "op:getPet",
+          "name": "getPet"
+        },
+        "request": {
+          "method": "GET"
+        },
+        "response": {
+          "code": 200
+        },
+        "assertions": [
+          {
+            "assertion": "Status code is successful (200)"
+          },
+          {
+            "assertion": "Response time is below 2000ms"
+          },
+          {
+            "assertion": "Response Content-Type is JSON"
+          },
+          {
+            "assertion": "Response matches the schema for its status code"
+          }
+        ]
+      },
+      {
+        "cursor": {
+          "ref": "1fa83032-53f4-4437-be7d-2fb16e339b1f"
+        },
+        "item": {
+          "id": "op:getPet#negative-1",
+          "name": "[Negative] getPet - missing id"
+        },
+        "request": {
+          "method": "GET"
+        },
+        "response": {
+          "code": 404
+        },
+        "assertions": [
+          {
+            "assertion": "Missing required parameter 'id' is rejected"
+          }
+        ]
+      },
+      {
+        "cursor": {
+          "ref": "40753c35-9e5b-4c44-b137-1887cdc45d10"
+        },
+        "item": {
+          "id": "op:getStats",
+          "name": "getStats"
+        },
+        "request": {
+          "method": "GET"
+        },
+        "response": {
+          "code": 500
+        },
+        "assertions": [
+          {
+            "assertion": "Status code is successful (200)",
+            "error": {
+              "name": "AssertionError",
+              "message": "expected 500 to be one of [ 200 ]"
+            }
+          },
+          {
+            "assertion": "Response time is below 2000ms"
+          }
+        ]
+      }
+    ],
+    "failures": [
+      {
+        "cursor": {
+          "ref": "40753c35-9e5b-4c44-b137-1887cdc45d10"
+        },
+        "source": {
+          "id": "op:getStats",
+          "name": "getStats"
+        },
+        "error": {
+          "name": "AssertionError",
+          "message": "expected 500 to be one of [ 200 ]"
+        },
+        "at": "assertion:0 in test-script"
+      }
+    ]
+  }
+}

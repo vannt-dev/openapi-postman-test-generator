@@ -8,6 +8,7 @@ import { diffSpecs, formatSpecDiff } from './diff';
 import { toBrunoCollection } from './exporters/bruno';
 import { toK6Script } from './exporters/k6';
 import { OpenApiPostmanGenerator } from './generator';
+import { formatRunCoverage, formatRunCoverageMarkdown, runCoverage } from './run-coverage';
 import { runCollection } from './runner';
 import { AgentPlan, CoverageReport, OpenApiSpec, PostmanCollection, PostmanEnvironment, PostmanItem, ProjectConfig } from './types';
 
@@ -19,6 +20,7 @@ const GENERATE_FLAGS = new Set(['tag', 'exclude-tag', 'coverage', 'oauth-token',
 const CONVERT_FLAGS = new Set(['collection', 'environment', 'bruno', 'k6']);
 const DIFF_FLAGS = new Set(['old', 'new', 'format', 'allow-breaking']);
 const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var']);
+const COVERAGE_FLAGS = new Set(['run', 'coverage', 'out', 'format']);
 
 function printUsage(exitCode = 1): never {
   console.error(`OpenAPI Postman Test Generator
@@ -27,6 +29,7 @@ Usage:
   openapi-postman generate --spec <file-or-url> [options]
   openapi-postman run --collection <file> [options]
   openapi-postman diff --old <file-or-url> --new <file-or-url> [options]
+  openapi-postman coverage --run <newman.json> --coverage <file> [options]
   openapi-postman convert --collection <file> [--environment <file>] --bruno <dir> | --k6 <file>
 
 Generate options:
@@ -70,17 +73,24 @@ Convert options (a generated collection to another tool's format):
 
 Diff options:
   --format <text|json>     Output format (default: text)
-  --allow-breaking         Exit 0 even when breaking changes are found`);
+  --allow-breaking         Exit 0 even when breaking changes are found
+
+Coverage options (what a run exercised of the document):
+  --run <file>             Newman JSON report of the run (newman.json in the report directory)
+  --coverage <file>        Coverage report written by generate --coverage
+  --out <file>             Also write the run coverage as JSON
+  --format <text|markdown|json>  Output format (default: text)`);
   process.exit(exitCode);
 }
 
-function parseFlags(args: string[]): Flags {
+/** `valued` names flags that take a value in this command although they are boolean in others. */
+function parseFlags(args: string[], valued = new Set<string>()): Flags {
   const flags: Flags = {};
   for (let index = 0; index < args.length; index++) {
     const token = args[index];
     if (!token.startsWith('--')) throw new Error(`Unexpected argument: ${token}`);
     const key = token.slice(2);
-    if (BOOLEAN_FLAGS.has(key)) { flags[key] = true; continue; }
+    if (BOOLEAN_FLAGS.has(key) && !valued.has(key)) { flags[key] = true; continue; }
     const next = args[index + 1];
     if (!next || next.startsWith('--')) throw new Error(`--${key} requires a value`);
     else if (REPEATABLE_FLAGS.has(key)) { flags[key] = [...(flags[key] as string[] | undefined || []), next]; index++; }
@@ -296,6 +306,30 @@ async function diff(flags: Flags): Promise<void> {
   if (result.breaking && !flags['allow-breaking']) process.exitCode = 1;
 }
 
+/** Joins a Newman report with the coverage report: what of the document the run exercised and passed. */
+function coverage(flags: Flags): void {
+  // `--run` is a boolean for generate; here it names the report.
+  validateFlags(flags, COVERAGE_FLAGS);
+  const runFile = stringFlag(flags, 'run');
+  const coverageFile = stringFlag(flags, 'coverage');
+  if (!runFile || !coverageFile) throw new Error('--run <newman.json> and --coverage <file> are required');
+  const format = stringFlag(flags, 'format') || 'text';
+  if (!['text', 'markdown', 'json'].includes(format)) throw new Error('--format must be text, markdown or json');
+  const report = runCoverage(readJsonFile<CoverageReport>(coverageFile, 'Coverage'), readJsonFile<unknown>(runFile, 'Newman report'));
+  const outFile = stringFlag(flags, 'out');
+  if (outFile) {
+    const target = path.resolve(outFile);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  }
+  if (format === 'json') console.log(JSON.stringify(report, null, 2));
+  else if (format === 'markdown') process.stdout.write(formatRunCoverageMarkdown(report));
+  else {
+    console.log(formatRunCoverage(report));
+    if (outFile) console.log(`Run coverage: ${path.resolve(outFile)}`);
+  }
+}
+
 function countRequests(items: PostmanItem[]): number {
   return items.reduce((total, item) => total + (item.request ? 1 : 0) + (item.item ? countRequests(item.item) : 0), 0);
 }
@@ -304,7 +338,7 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (!args.length) return printUsage();
   if (args.includes('--help') || args.includes('-h')) return printUsage(0);
-  const explicitCommand = ['generate', 'run', 'diff', 'convert'].includes(args[0]);
+  const explicitCommand = ['generate', 'run', 'diff', 'convert', 'coverage'].includes(args[0]);
   const command = explicitCommand ? args.shift()! : 'generate';
   // Preserve compatibility with the original positional syntax.
   if (!explicitCommand && args[0] && !args[0].startsWith('--')) {
@@ -313,6 +347,7 @@ async function main(): Promise<void> {
     args.unshift('--spec', spec);
     if (out) args.push('--out', out);
   }
+  if (command === 'coverage') return coverage(parseFlags(args, new Set(['run'])));
   const flags = parseFlags(args);
   if (command === 'run') return run(flags);
   if (command === 'diff') return diff(flags);

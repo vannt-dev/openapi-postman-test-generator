@@ -66,6 +66,9 @@ outputs:
   failures:
     description: The number of failed assertions of the run; empty when run is 'false'.
     value: ${{ steps.run.outputs.failures }}
+  run-coverage:
+    description: The path of the run coverage (JSON) - what the run exercised and passed; empty when run is 'false'.
+    value: ${{ steps.run.outputs.run-coverage }}
 
 runs:
   using: composite
@@ -143,4 +146,13 @@ runs:
           echo "failures=$(sed -E 's/.* with ([0-9]+) failure.*/\1/' <<< "$completed")" >> "$GITHUB_OUTPUT"
         fi
         echo "report-dir=$OUT/reports" >> "$GITHUB_OUTPUT"
+        # what the run exercised of the document: joins the Newman report with the coverage report
+        if [ -f "$OUT/reports/newman.json" ] && [ -f "$OUT/api.coverage.json" ]; then
+          if node "$GITHUB_ACTION_PATH/dist/index.js" coverage --run "$OUT/reports/newman.json" \
+            --coverage "$OUT/api.coverage.json" --out "$OUT/api.run-coverage.json" \
+            --format markdown > "$work/openapi-postman-run-coverage.md"; then
+            { echo; cat "$work/openapi-postman-run-coverage.md"; } >> "$GITHUB_STEP_SUMMARY"
+            echo "run-coverage=$OUT/api.run-coverage.json" >> "$GITHUB_OUTPUT"
+          fi
+        fi
         exit "$status"

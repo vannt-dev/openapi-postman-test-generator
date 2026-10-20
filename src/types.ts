@@ -149,7 +149,14 @@ export interface PostmanRequest {
   description?: string;
   auth?: PostmanAuth;
 }
-export interface PostmanItem { name: string; request?: PostmanRequest; event?: PostmanEvent[]; item?: PostmanItem[] }
+export interface PostmanItem {
+  /** Generated requests carry `op:<operationId>`, the key `coverage --run` joins a Newman report on. */
+  id?: string;
+  name: string;
+  request?: PostmanRequest;
+  event?: PostmanEvent[];
+  item?: PostmanItem[];
+}
 export interface PostmanCollection {
   info: { name: string; description?: string; schema: string };
   item: PostmanItem[];
