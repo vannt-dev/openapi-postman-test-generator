@@ -1,0 +1,89 @@
+{
+  "operations": {
+    "total": 5,
+    "covered": 4,
+    "skipped": [
+      {
+        "operationId": "deletePet",
+        "method": "DELETE",
+        "path": "/pets/{id}",
+        "reason": "safe mode"
+      }
+    ]
+  },
+  "responses": {
+    "total": 6,
+    "covered": 6,
+    "uncovered": []
+  },
+  "byOperation": [
+    {
+      "operationId": "listPets",
+      "method": "GET",
+      "path": "/pets",
+      "tags": [],
+      "included": true,
+      "documented": [
+        "200"
+      ],
+      "covered": [
+        "200"
+      ]
+    },
+    {
+      "operationId": "createPet",
+      "method": "POST",
+      "path": "/pets",
+      "tags": [],
+      "included": true,
+      "documented": [
+        "201",
+        "400"
+      ],
+      "covered": [
+        "201",
+        "400"
+      ]
+    },
+    {
+      "operationId": "getPet",
+      "method": "GET",
+      "path": "/pets/{id}",
+      "tags": [],
+      "included": true,
+      "documented": [
+        "200",
+        "404"
+      ],
+      "covered": [
+        "200",
+        "404"
+      ]
+    },
+    {
+      "operationId": "deletePet",
+      "method": "DELETE",
+      "path": "/pets/{id}",
+      "tags": [],
+      "included": false,
+      "reason": "safe mode",
+      "documented": [
+        "204"
+      ],
+      "covered": []
+    },
+    {
+      "operationId": "getStats",
+      "method": "GET",
+      "path": "/stats",
+      "tags": [],
+      "included": true,
+      "documented": [
+        "200"
+      ],
+      "covered": [
+        "200"
+      ]
+    }
+  ]
+}

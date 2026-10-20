@@ -8,4 +8,6 @@ export { toK6Script } from './exporters/k6';
 export type { K6Options } from './exporters/k6';
 export { OpenApiPostmanGenerator, SwaggerToPostmanGenerator } from './generator';
 export { processNewmanReport, runCollection } from './runner';
+export { documentedStatus, formatRunCoverage, formatRunCoverageMarkdown, runCoverage } from './run-coverage';
+export type { OperationRunResult, ResponseRunResult, RunCoverageExtra, RunCoverageOperation, RunCoverageReport, RunFailure } from './run-coverage';
 export * from './types';

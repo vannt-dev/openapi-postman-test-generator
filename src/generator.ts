@@ -1,6 +1,7 @@
 import { exampleFor } from './generator/example';
 import { toJsonSchema } from './generator/json-schema';
 import { classifySecurityScheme } from './generator/security';
+import { documentedStatus, negativeItemId, operationItemId } from './run-coverage';
 import {
   AsyncOperation, CoverageOperation, CoverageReport, CoverageSkipReason,
   Header, MediaType, NegativeScenario, OpenApiSpec, Operation, Parameter, PathItem, PostmanAuth,
@@ -193,9 +194,8 @@ export class OpenApiPostmanGenerator {
     const entry = this.coverageByOperation.get(operation);
     if (!entry) return;
     for (const code of codes) {
-      const exact = String(code).toUpperCase();
-      const status = entry.documented.includes(exact) ? exact : `${exact[0]}XX`;
-      if (entry.documented.includes(status) && !entry.covered.includes(status)) entry.covered.push(status);
+      const status = documentedStatus(entry.documented, code);
+      if (status && !entry.covered.includes(status)) entry.covered.push(status);
     }
     entry.covered.sort();
   }
@@ -260,10 +260,13 @@ export class OpenApiPostmanGenerator {
       this.coverageByOperation.set(entry.operation, covered);
       const tag = entry.operation.tags?.[0] || DEFAULT_TAG;
       const items = folders.get(tag) || [];
-      const generated = [this.generateItem(entry.route, entry.method, entry.pathItem, entry.operation)];
+      // The ids link the requests of a Newman report back to the operation (coverage --run).
+      const generated: PostmanItem[] = [{ id: operationItemId(id), ...this.generateItem(entry.route, entry.method, entry.pathItem, entry.operation) }];
       const asyncOperation = this.asyncOperationFor(id);
       if (asyncOperation) generated.push(this.pollItem(asyncOperation, generated[0]));
-      if (this.options.includeNegative) generated.push(...this.generateNegativeItems(entry));
+      if (this.options.includeNegative) {
+        generated.push(...this.generateNegativeItems(entry).map((item, position) => ({ id: negativeItemId(id, position + 1), ...item })));
+      }
       items.push(...generated);
       orderedItems.push(...generated);
       folders.set(tag, items);

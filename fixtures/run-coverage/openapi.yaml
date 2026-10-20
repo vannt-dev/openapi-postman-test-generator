@@ -1,0 +1,67 @@
+# A tiny API for the run coverage tests: test/run-coverage.js reads the newman.json and
+# api.coverage.json recorded next to it, and test/e2e-run-coverage.js records them again.
+openapi: 3.0.3
+info:
+  title: Run coverage pets
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      responses:
+        '200':
+          description: Pets
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+    post:
+      operationId: createPet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: Miso }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { type: object, required: [id], properties: { id: { type: integer } } }
+        '400':
+          description: Invalid pet
+  /pets/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, example: 1 }
+    get:
+      operationId: getPet
+      responses:
+        '200':
+          description: A pet
+          content:
+            application/json:
+              schema: { type: object, required: [id, name], properties: { id: { type: integer }, name: { type: string } } }
+        '404':
+          description: No such pet
+    delete:
+      operationId: deletePet
+      responses:
+        '204':
+          description: Deleted
+  /stats:
+    get:
+      operationId: getStats
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema: { type: object }
