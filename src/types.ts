@@ -105,6 +105,16 @@ export interface Response {
   schema?: Schema;
   content?: Record<string, MediaType>;
   examples?: Record<string, unknown>;
+  /** Response headers: a schema (OpenAPI 3) or the type on the header itself (Swagger 2.0). */
+  headers?: Record<string, Header | Reference>;
+}
+
+/** A response header as OpenAPI 3 (`schema`, `content`) or Swagger 2.0 (`type`, `items`, ...) describes it. */
+export interface Header extends Omit<Schema, 'required'> {
+  required?: boolean;
+  schema?: Schema;
+  content?: Record<string, MediaType>;
+  collectionFormat?: string;
 }
 
 export interface SecurityScheme {
@@ -243,6 +253,8 @@ export interface ProjectConfig {
   excludeTags?: string[];
   /** Start the collection by fetching an OAuth2 client credentials token for the schemes that have that flow. */
   oauthClientCredentials?: boolean;
+  /** Check the response headers the document declares. Defaults to true. */
+  responseHeaderAssertions?: boolean;
   profiles?: Record<string, {
     baseUrl?: string;
     variables?: Record<string, string>;

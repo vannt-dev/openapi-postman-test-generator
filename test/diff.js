@@ -134,6 +134,55 @@ const base = {
   assert.equal(find(diff, 'response-removed').message, 'success response removed');
 }
 
+// Response headers are what the client reads, too: one that is gone, no longer promised or of another type breaks it.
+{
+  const withHeaders = clone(base);
+  withHeaders.paths['/pets'].get.responses[200].headers = {
+    'X-Total-Count': { required: true, schema: { type: 'integer' } },
+    'X-Rate-Limit': { schema: { type: 'integer' } },
+    'X-Request-Id': { required: true, schema: { type: 'string' } },
+    'X-Mode': { schema: { type: 'string', enum: ['fast', 'slow'] } },
+    'Content-Type': { schema: { type: 'string' } },
+  };
+  assert.deepEqual(diffSpecs(withHeaders, clone(withHeaders)).changes, []);
+  const next = clone(withHeaders);
+  const headers = next.paths['/pets'].get.responses[200].headers;
+  delete headers['X-Rate-Limit'];
+  headers['X-Request-Id'].required = false;
+  headers['X-Total-Count'].schema.type = 'string';
+  headers['X-Mode'].schema.enum = ['fast', 'slow', 'auto'];
+  headers['x-next-page'] = { required: true, schema: { type: 'string' } };
+  headers['X-Trace'] = { schema: { type: 'string' } };
+  // OpenAPI ignores a Content-Type header entry, and so does the diff.
+  delete headers['Content-Type'];
+  const diff = diffSpecs(withHeaders, next);
+  assert.deepEqual(codes(diff, 'breaking').sort(), ['response-header-became-optional', 'response-header-removed', 'type-changed']);
+  assert.deepEqual(codes(diff, 'non-breaking').sort(), ['enum-value-added', 'response-header-added', 'response-header-added']);
+  assert.equal(find(diff, 'response-header-removed').location, 'response 200 header "X-Rate-Limit"');
+  assert.equal(find(diff, 'type-changed').location, 'response 200 header "X-Total-Count"');
+  assert.equal(find(diff, 'type-changed').message, 'type changed from integer to string');
+  assert.ok(diff.changes.some(change => change.message === 'required header added' && change.location === 'response 200 header "x-next-page"'));
+
+  // Header names are case-insensitive, and a header that becomes required breaks nobody.
+  const recased = clone(withHeaders);
+  const recasedHeaders = recased.paths['/pets'].get.responses[200].headers;
+  recasedHeaders['x-rate-limit'] = { ...recasedHeaders['X-Rate-Limit'], required: true };
+  delete recasedHeaders['X-Rate-Limit'];
+  assert.deepEqual(diffSpecs(withHeaders, recased).changes.map(change => [change.severity, change.code]), [['non-breaking', 'response-header-became-required']]);
+
+  // A Swagger 2.0 header carries its type itself and is compared with the OpenAPI 3 one that replaced it.
+  const swagger = {
+    swagger: '2.0', info: { title: 'Pets', version: '1' }, produces: ['application/json'],
+    paths: { '/pets': { get: { responses: { 200: { description: 'ok', headers: { 'X-Total-Count': { type: 'integer' }, 'X-Old': { type: 'string' } } } } } } },
+  };
+  const openapi = {
+    openapi: '3.0.3', info: { title: 'Pets', version: '2' },
+    paths: { '/pets': { get: { responses: { 200: { description: 'ok', headers: { 'X-Total-Count': { schema: { type: 'string' } } } } } } } },
+  };
+  const migrated = diffSpecs(swagger, openapi);
+  assert.deepEqual(codes(migrated, 'breaking').sort(), ['response-header-removed', 'type-changed']);
+}
+
 // Security: an operation that starts asking for credentials breaks anonymous clients.
 {
   const next = clone(base);

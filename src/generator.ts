@@ -3,7 +3,7 @@ import { toJsonSchema } from './generator/json-schema';
 import { classifySecurityScheme } from './generator/security';
 import {
   AsyncOperation, CoverageOperation, CoverageReport, CoverageSkipReason,
-  MediaType, NegativeScenario, OpenApiSpec, Operation, Parameter, PathItem, PostmanAuth,
+  Header, MediaType, NegativeScenario, OpenApiSpec, Operation, Parameter, PathItem, PostmanAuth,
   PostmanBody, PostmanCollection, PostmanEnvironment, PostmanEvent, PostmanFormEntry,
   PostmanHeader, PostmanItem, PostmanQueryParam, PostmanUrl, PostmanVariable,
   Reference, RequestBody, Response, Schema, SecurityScheme, VariableMapping, WorkflowRequest,
@@ -43,7 +43,66 @@ export interface GeneratorOptions {
   includeTags?: string[];
   excludeTags?: string[];
   oauthClientCredentials?: boolean;
+  /** Check the response headers the document declares. Defaults to true. */
+  responseHeaderAssertions?: boolean;
 }
+
+/** How a generated script checks one declared response header. */
+interface HeaderCheck {
+  required: boolean;
+  /** JSON Schema of the value, or null when only presence can be checked. */
+  schema: Record<string, unknown> | null;
+  /** The list separator when it is not a comma (Swagger 2.0 collectionFormat). */
+  delimiter?: string;
+}
+
+/** Status code ("200", "2XX", "default") to header name to check. */
+type HeaderChecks = Record<string, Record<string, HeaderCheck>>;
+
+const COLLECTION_DELIMITERS: Record<string, string> = { ssv: ' ', tsv: '\t', pipes: '|' };
+
+/**
+ * A header schema without `format`: HTTP dates (`Last-Modified`, `Expires`) are not the RFC 3339
+ * date-times a `date-time` format asks for, and specs label them that way often enough.
+ */
+function withoutFormat(schema: Record<string, unknown>): Record<string, unknown> {
+  const rest = { ...schema };
+  delete rest.format;
+  if (rest.items && typeof rest.items === 'object') rest.items = withoutFormat(rest.items as Record<string, unknown>);
+  for (const keyword of ['allOf', 'anyOf', 'oneOf']) {
+    if (Array.isArray(rest[keyword])) rest[keyword] = (rest[keyword] as Array<Record<string, unknown>>).map(withoutFormat);
+  }
+  return rest;
+}
+
+// The part of a test script that checks the declared headers of the status code received.
+// Presence is asserted for required headers only; a value is checked when the header is sent.
+const HEADER_CHECK_LINES = [
+  '  const headerStatus = String(pm.response.code);',
+  '  const declaredHeaders = responseHeaders[headerStatus] || responseHeaders[headerStatus.charAt(0) + "XX"] || responseHeaders.default || {};',
+  '  // Header values are text: read them as the declared type before the schema is applied.',
+  '  const readHeader = (raw, schema, delimiter) => {',
+  '    const types = [].concat(schema.type || []);',
+  '    if (types.indexOf("array") >= 0) return raw.split(delimiter || ",").map(item => readHeader(item.trim(), schema.items || {}));',
+  '    if ((types.indexOf("integer") >= 0 || types.indexOf("number") >= 0) && raw.trim() !== "" && !isNaN(Number(raw))) return Number(raw);',
+  '    if (types.indexOf("boolean") >= 0 && (raw === "true" || raw === "false")) return raw === "true";',
+  '    return raw;',
+  '  };',
+  '  Object.keys(declaredHeaders).forEach(name => {',
+  '    const header = declaredHeaders[name];',
+  '    const raw = pm.response.headers.get(name);',
+  '    if (header.required) {',
+  '      pm.test("Response has the " + name + " header", function () {',
+  '        pm.expect(raw, name + " header").to.be.a("string");',
+  '      });',
+  '    }',
+  '    if (raw !== undefined && raw !== null && header.schema) {',
+  '      pm.test("Response header " + name + " matches its schema", function () {',
+  '        pm.expect(readHeader(String(raw), header.schema, header.delimiter)).to.have.jsonSchema(header.schema);',
+  '      });',
+  '    }',
+  '  });',
+];
 
 /** The tag an operation without tags is filed under, as a folder and for the tag filter. */
 const DEFAULT_TAG = 'Default';
@@ -409,6 +468,7 @@ export class OpenApiPostmanGenerator {
       '  }',
       '}',
     );
+    lines.push(...this.headerCheckLines(operation, status => /^2/.test(status)));
     const operationId = this.operationId(route, method, operation);
     const mappings = (this.options.variableMappings || []).filter(mapping => mapping.sourceOperationId === operationId);
     if (method === 'POST' || mappings.length) {
@@ -757,7 +817,7 @@ export class OpenApiPostmanGenerator {
           unauthorized.request.url.query = unauthorized.request.url.query.filter(query => !apiKeyNames.includes(query.key));
         }
       }
-      unauthorized.event = [this.negativeTest('Request is rejected without credentials', this.negativeCodes(entry.operation, [401, 403]))];
+      unauthorized.event = [this.negativeTest('Request is rejected without credentials', this.negativeCodes(entry.operation, [401, 403]), entry.operation)];
       output.push(unauthorized);
     }
 
@@ -803,7 +863,7 @@ export class OpenApiPostmanGenerator {
         if (parameter) {
           const variant = this.parameterNegativeVariant(positive, operationId, parameter,
             explicitPlan ? scenario.name : `missing ${parameter.name}`, undefined, true,
-            this.negativeTest(`Missing required parameter '${parameter.name}' is rejected`, this.negativeCodes(entry.operation, [400, 404, 422])));
+            this.negativeTest(`Missing required parameter '${parameter.name}' is rejected`, this.negativeCodes(entry.operation, [400, 404, 422]), entry.operation));
           if (variant) output.push(variant);
           continue;
         }
@@ -814,7 +874,7 @@ export class OpenApiPostmanGenerator {
         `[Negative] ${positive.name} - ${explicitPlan ? scenario.name : `missing ${requiredField}`}`,
         'missing-field',
         data => { delete data[requiredField]; },
-        this.negativeTest(`Missing required field '${requiredField}' is rejected`, this.negativeCodes(entry.operation, [400, 422])),
+        this.negativeTest(`Missing required field '${requiredField}' is rejected`, this.negativeCodes(entry.operation, [400, 422]), entry.operation),
       );
     }
 
@@ -828,7 +888,7 @@ export class OpenApiPostmanGenerator {
         if (parameter) {
           const variant = this.parameterNegativeVariant(positive, operationId, parameter,
             explicitPlan ? scenario.name : `invalid ${parameter.name}`, '__invalid_enum__', false,
-            this.negativeTest(`Invalid enum value for '${parameter.name}' is rejected`, this.negativeCodes(entry.operation, [400, 422])));
+            this.negativeTest(`Invalid enum value for '${parameter.name}' is rejected`, this.negativeCodes(entry.operation, [400, 422]), entry.operation));
           if (variant) output.push(variant);
           continue;
         }
@@ -839,7 +899,7 @@ export class OpenApiPostmanGenerator {
         `[Negative] ${positive.name} - ${explicitPlan ? scenario.name : `invalid ${enumField}`}`,
         'invalid-enum',
         data => { data[enumField] = '__invalid_enum__'; },
-        this.negativeTest(`Invalid enum value for '${enumField}' is rejected`, this.negativeCodes(entry.operation, [400, 422])),
+        this.negativeTest(`Invalid enum value for '${enumField}' is rejected`, this.negativeCodes(entry.operation, [400, 422]), entry.operation),
       );
     }
 
@@ -855,7 +915,7 @@ export class OpenApiPostmanGenerator {
         if (parameter) {
           const variant = this.parameterNegativeVariant(positive, operationId, parameter,
             explicitPlan ? scenario.name : `out-of-range ${parameter.name}`, this.invalidBoundaryValue(this.parameterSchema(parameter)), false,
-            this.negativeTest(`Out-of-range value for '${parameter.name}' is rejected`, this.negativeCodes(entry.operation, [400, 404, 422])));
+            this.negativeTest(`Out-of-range value for '${parameter.name}' is rejected`, this.negativeCodes(entry.operation, [400, 404, 422]), entry.operation));
           if (variant) output.push(variant);
           continue;
         }
@@ -867,7 +927,7 @@ export class OpenApiPostmanGenerator {
         `[Negative] ${positive.name} - ${explicitPlan ? scenario.name : `out-of-range ${field}`}`,
         'boundary',
         data => { data[field] = this.invalidBoundaryValue(fieldSchema); },
-        this.negativeTest(`Out-of-range value for '${field}' is rejected`, this.negativeCodes(entry.operation, [400, 422])),
+        this.negativeTest(`Out-of-range value for '${field}' is rejected`, this.negativeCodes(entry.operation, [400, 422]), entry.operation),
       );
     }
     return output;
@@ -964,12 +1024,45 @@ export class OpenApiPostmanGenerator {
     return codes;
   }
 
-  private negativeTest(name: string, codes: number[]): PostmanEvent {
+  private negativeTest(name: string, codes: number[], operation: Operation): PostmanEvent {
     return { listen: 'test', script: { type: 'text/javascript', exec: [
       `pm.test(${JSON.stringify(name)}, function () {`,
       `  pm.expect(pm.response.code).to.be.oneOf(${JSON.stringify(codes)});`,
       '});',
+      ...this.headerCheckLines(operation, status => /^[45]/.test(status)),
     ] } };
+  }
+
+  /** The script lines that check the headers declared by the responses whose status passes `include`. */
+  private headerCheckLines(operation: Operation, include: (status: string) => boolean): string[] {
+    if (this.options.responseHeaderAssertions === false) return [];
+    const checks: HeaderChecks = {};
+    for (const [code, value] of Object.entries(operation.responses)) {
+      const status = code.toLowerCase() === 'default' ? 'default' : code.toUpperCase();
+      if (status !== 'default' && !include(status)) continue;
+      const headers: Record<string, HeaderCheck> = {};
+      for (const [name, header] of Object.entries(this.resolve<Response>(value)?.headers || {})) {
+        // OpenAPI: a Content-Type entry among the response headers is ignored.
+        if (name.toLowerCase() === 'content-type') continue;
+        headers[name] = this.headerCheck(this.resolve<Header>(header));
+      }
+      if (Object.keys(headers).length) checks[status] = headers;
+    }
+    if (!Object.keys(checks).length) return [];
+    return ['', '// Check the response headers the document declares for the status code received.', '{',
+      `  const responseHeaders = ${JSON.stringify(checks)};`, ...HEADER_CHECK_LINES, '}'];
+  }
+
+  private headerCheck(header: Header): HeaderCheck {
+    // OpenAPI 3 puts the type under `schema` (a media type is left unparsed); Swagger 2.0 on the header.
+    const { required, schema: nested, content, collectionFormat, ...inline } = header;
+    const source = nested || (!content && (inline.type || inline.enum) ? inline as Schema : undefined);
+    let schema = source ? withoutFormat(toJsonSchema(source, this.resolveSchema)) : null;
+    const types = schema ? ([] as unknown[]).concat(schema.type ?? []) : [];
+    // An object-valued header has no single text form to parse: only its presence is checked.
+    if (schema && (types.includes('object') || schema.properties)) schema = null;
+    const delimiter = collectionFormat ? COLLECTION_DELIMITERS[collectionFormat] : undefined;
+    return { required: required === true, schema, ...(delimiter ? { delimiter } : {}) };
   }
 
   private requestSchema(operation: Operation, params: Parameter[]): Schema | undefined {

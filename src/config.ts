@@ -72,6 +72,7 @@ const projectConfigSchema = z.object({
   includeTags: z.array(z.string().min(1)).optional(),
   excludeTags: z.array(z.string().min(1)).optional(),
   oauthClientCredentials: z.boolean().optional(),
+  responseHeaderAssertions: z.boolean().optional(),
   profiles: z.record(z.string(), z.object({
     baseUrl: z.string().min(1).optional(),
     variables: z.record(z.string(), z.string()).optional(),
