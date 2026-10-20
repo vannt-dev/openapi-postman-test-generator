@@ -183,7 +183,7 @@
       <a href="#ci">In CI</a>
       <a href="#quickstart">Quick start</a>
     </nav>
-    <div class="meta-tags"><span>REV v<span data-npm-version>0.9.0</span></span><span>NODE ≥22</span><span>MIT</span></div>
+    <div class="meta-tags"><span>REV v<span data-npm-version>0.10.0</span></span><span>NODE ≥22</span><span>MIT</span></div>
   </div>
 </div>
 
@@ -314,17 +314,17 @@ pm.test(<span class="s">"Response matches the schema…"</span>, …)</pre></div
       <div class="spec-row"><dt>Bodies</dt><dd>JSON, form-urlencoded, multipart uploads, text, and binary responses</dd></div>
       <div class="spec-row"><dt>Parameters</dt><dd>Path, query, header, cookie, array, and deep-object styles</dd></div>
       <div class="spec-row"><dt>Auth</dt><dd>Bearer, Basic, API keys, and combined security requirements; <code class="mono">--oauth-token</code> starts the run by fetching an OAuth2 client credentials token</dd></div>
-      <div class="spec-row"><dt>Assertions</dt><dd>Status-specific JSON Schema checks, media-type-aware response handling</dd></div>
+      <div class="spec-row"><dt>Assertions</dt><dd>Status-specific JSON Schema checks, media-type-aware response handling, and the response headers the spec declares (required headers present, sent headers match their schema) — on by default</dd></div>
       <div class="spec-row"><dt>Ordering &amp; chaining</dt><dd>CRUD-oriented default order, configurable, with identifier extraction between dependent requests</dd></div>
       <div class="spec-row"><dt>Negative tests</dt><dd>Missing-field, invalid-enum, boundary, and unauthorized cases — optional, off by default</dd></div>
       <div class="spec-row"><dt>Safe mode</dt><dd>Excludes <code class="mono">DELETE</code> operations when testing against an unfamiliar API</dd></div>
       <div class="spec-row"><dt>Tag filter</dt><dd><code class="mono">--tag</code> keeps the operations that carry one of the tags and <code class="mono">--exclude-tag</code> leaves them out; <code class="mono">Default</code> names the untagged ones</dd></div>
-      <div class="spec-row"><dt>Coverage</dt><dd>Every run says how many operations have a request and which documented responses have a test; <code class="mono">--coverage</code> writes it to a file</dd></div>
+      <div class="spec-row"><dt>Coverage</dt><dd>Every run says how many operations have a request and which documented responses have a test; <code class="mono">--coverage</code> writes it to a file. <code class="mono">coverage --run newman.json</code> says what an actual run passed, failed or never reached</dd></div>
       <div class="spec-row"><dt>Setup, teardown &amp; polling</dt><dd>Seed and clean-up requests from the project config, and a poll request after an operation that answers with a <code class="mono">Location</code> to follow</dd></div>
       <div class="spec-row"><dt>Runtime values</dt><dd>Named environment profiles, JSON or CSV iteration data, and <code class="mono">--env-var KEY=VALUE</code> for values such as an OTP</dd></div>
       <div class="spec-row"><dt>Runner</dt><dd>Newman execution with CLI, JSON, JUnit, and standalone HTML reports</dd></div>
       <div class="spec-row"><dt>Bruno &amp; k6</dt><dd>The same tests as a Bruno collection folder (<code class="mono">--bruno</code>) and a k6 script (<code class="mono">--k6</code>), from <code class="mono">generate</code> or from a collection with <code class="mono">convert</code></dd></div>
-      <div class="spec-row"><dt>Spec diff</dt><dd><code class="mono">openapi-postman diff</code> lists what changed between two versions of a spec and exits non-zero on a breaking change</dd></div>
+      <div class="spec-row"><dt>Spec diff</dt><dd><code class="mono">openapi-postman diff</code> lists what changed between two versions of a spec, response headers included, and exits non-zero on a breaking change</dd></div>
     </dl>
   </section>
 
@@ -342,9 +342,9 @@ pm.test(<span class="s">"Response matches the schema…"</span>, …)</pre></div
 
   <section id="ci">
     <div class="section-head"><span class="num">04</span><h2>The same run in a pull request.</h2></div>
-    <p class="ai-note">The GitHub Action generates the collection, writes the coverage to the job summary, runs the tests with Newman and fails the job when a test fails. <code class="mono">diff</code> guards the spec itself: it fails the step when the new version breaks clients of the old one.</p>
+    <p class="ai-note">The GitHub Action generates the collection, writes the coverage to the job summary, runs the tests with Newman and fails the job when a test fails. After the run, the summary also shows what the run covered, and the <code class="mono">run-coverage</code> output hands that report to later steps. <code class="mono">diff</code> guards the spec itself: it fails the step when the new version breaks clients of the old one.</p>
     <div class="qs-grid" style="margin-top:1.1rem">
-      <div class="console"><div class="console-body"><pre>- uses: vannt-dev/openapi-postman-test-generator@v<span data-npm-version>0.9.0</span>
+      <div class="console"><div class="console-body"><pre>- uses: vannt-dev/openapi-postman-test-generator@v<span data-npm-version>0.10.0</span>
   with:
     spec: openapi.yaml
     base-url: http://localhost:3000   <span class="out"># optional</span>
@@ -394,7 +394,7 @@ pm.test(<span class="s">"Response matches the schema…"</span>, …)</pre></div
         <a href="https://github.com/vannt-dev/openapi-postman-test-generator/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
       </div>
     </div>
-    <div class="foot-tags" style="margin-top:1.4rem;"><span>REV v<span data-npm-version>0.9.0</span></span><span>NODE ≥22</span><span>© vannt-dev</span></div>
+    <div class="foot-tags" style="margin-top:1.4rem;"><span>REV v<span data-npm-version>0.10.0</span></span><span>NODE ≥22</span><span>© vannt-dev</span></div>
   </footer>
 </div>
 
