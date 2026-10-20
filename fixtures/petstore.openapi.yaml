@@ -18,6 +18,10 @@ paths:
       responses:
         '200':
           description: Pet list
+          headers:
+            X-Total-Count:
+              description: Number of pets in all pages
+              schema: { type: integer, minimum: 0 }
           content:
             application/json:
               schema:
@@ -34,6 +38,10 @@ paths:
       responses:
         '201':
           description: Created pet
+          headers:
+            Location:
+              required: true
+              schema: { type: string }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Pet' }

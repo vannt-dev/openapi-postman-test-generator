@@ -35,6 +35,20 @@ interface NormalizedParameter {
   schema: Node;
 }
 
+interface NormalizedHeader {
+  /** The name as written, for display; the map key is the lower-case name. */
+  name: string;
+  required: boolean;
+  schema: Node;
+}
+
+interface NormalizedResponse {
+  /** Media type to schema; empty for a response without a body. */
+  bodies: Map<string, Node>;
+  /** Lower-case header name to header. */
+  headers: Map<string, NormalizedHeader>;
+}
+
 interface NormalizedOperation {
   /** Method and path as written, for display. */
   label: string;
@@ -44,8 +58,8 @@ interface NormalizedOperation {
   bodyRequired: boolean;
   /** Media type to schema. */
   requestBodies: Map<string, Node>;
-  /** Status code to (media type to schema). A response without a body maps to an empty map. */
-  responses: Map<string, Map<string, Node>>;
+  /** Status code to its bodies and headers. */
+  responses: Map<string, NormalizedResponse>;
 }
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'];
@@ -124,7 +138,7 @@ function normalizeOperation(spec: Node, path: string, method: string, pathItem: 
     }
   }
 
-  const responses = new Map<string, Map<string, Node>>();
+  const responses = new Map<string, NormalizedResponse>();
   const produces = listOf(operation.produces ?? spec.produces).filter((value): value is string => typeof value === 'string');
   for (const [status, raw] of Object.entries(nodeOf(operation.responses))) {
     const response = nodeOf(raw);
@@ -138,7 +152,7 @@ function normalizeOperation(spec: Node, path: string, method: string, pathItem: 
         bodies.set(mediaType.toLowerCase(), response.schema);
       }
     }
-    responses.set(String(status).toUpperCase(), bodies);
+    responses.set(String(status).toUpperCase(), { bodies, headers: headersOf(response) });
   }
 
   const security = operation.security ?? spec.security;
@@ -152,6 +166,20 @@ function normalizeOperation(spec: Node, path: string, method: string, pathItem: 
     requestBodies,
     responses,
   };
+}
+
+function headersOf(response: Node): Map<string, NormalizedHeader> {
+  const headers = new Map<string, NormalizedHeader>();
+  for (const [name, raw] of Object.entries(nodeOf(response.headers))) {
+    // OpenAPI ignores a Content-Type entry among the response headers; header names are case-insensitive.
+    if (name.toLowerCase() === 'content-type') continue;
+    const header = nodeOf(raw);
+    // OpenAPI 3 nests the type under `schema` or a media type; Swagger 2 puts it on the header itself.
+    const media = Object.values(nodeOf(header.content))[0];
+    const schema = isNode(header.schema) ? header.schema : media !== undefined ? nodeOf(nodeOf(media).schema) : header;
+    headers.set(name.toLowerCase(), { name, required: header.required === true, schema });
+  }
+  return headers;
 }
 
 function operationsOf(spec: Node): Map<string, NormalizedOperation> {
@@ -313,15 +341,16 @@ class Comparison {
       }
     }
 
-    for (const [status, bodies] of before.responses) {
+    for (const [status, response] of before.responses) {
       const next = after.responses.get(status);
       if (!next) {
         const success = /^2/.test(status);
         this.add(success ? 'breaking' : 'non-breaking', 'response-removed', name, `response ${status}`, success ? 'success response removed' : 'response removed');
         continue;
       }
-      for (const [mediaType, schema] of bodies) {
-        const nextSchema = next.get(mediaType);
+      this.responseHeaders(name, status, response.headers, next.headers);
+      for (const [mediaType, schema] of response.bodies) {
+        const nextSchema = next.bodies.get(mediaType);
         if (!nextSchema) {
           this.add('breaking', 'response-media-type-removed', name, `response ${status} ${mediaType}`, 'media type is no longer returned');
           continue;
@@ -331,6 +360,28 @@ class Comparison {
     }
     for (const status of after.responses.keys()) {
       if (!before.responses.has(status)) this.add('non-breaking', 'response-added', name, `response ${status}`, 'response added');
+    }
+  }
+
+  /**
+   * Headers of one response, judged as what the client reads: a header that is gone or no longer
+   * promised can break a client that reads it, and one that is added or becomes required cannot.
+   */
+  responseHeaders(operation: string, status: string, before: Map<string, NormalizedHeader>, after: Map<string, NormalizedHeader>): void {
+    for (const [key, header] of before) {
+      const where = `response ${status} header "${header.name}"`;
+      const next = after.get(key);
+      if (!next) {
+        this.add('breaking', 'response-header-removed', operation, where, 'header removed');
+        continue;
+      }
+      if (header.required && !next.required) this.add('breaking', 'response-header-became-optional', operation, where, 'header is no longer required');
+      else if (!header.required && next.required) this.add('non-breaking', 'response-header-became-required', operation, where, 'header became required');
+      this.schema('response', operation, where, '', header.schema, next.schema);
+    }
+    for (const [key, header] of after) {
+      if (before.has(key)) continue;
+      this.add('non-breaking', 'response-header-added', operation, `response ${status} header "${header.name}"`, header.required ? 'required header added' : 'header added');
     }
   }
 }
@@ -343,8 +394,8 @@ class Comparison {
  * needs something it did not, a response lost something it had, a type
  * changed. Everything else that is noticed is "non-breaking".
  *
- * Not compared: descriptions and examples, headers of responses, numeric and
- * length limits, `additionalProperties`, callbacks, links and servers.
+ * Not compared: descriptions and examples, numeric and length limits,
+ * `additionalProperties`, callbacks, links and servers.
  */
 export function diffSpecs(oldSpec: unknown, newSpec: unknown): SpecDiff {
   if (!isNode(oldSpec) || !isNode(newSpec)) throw new TypeError('diffSpecs expects two API description objects');

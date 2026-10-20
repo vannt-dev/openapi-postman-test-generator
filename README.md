@@ -20,6 +20,7 @@ The core generator is deterministic. An optional AI planner uses structured mode
 - Path, query, header, cookie, array, and deep-object parameters
 - Bearer, Basic, OAuth token placeholders, API keys, and combined security requirements
 - Status-specific JSON Schema assertions and media-type-aware response handling
+- Response header assertions: required headers are present, declared header values match their schema
 - Response assertions respect write-only fields; generated authentication variables retain configured values.
 - Synthesized examples are checked against supported type, numeric, string, array, object, and composition constraints. Unsupported synthesis or conflicting constraints produce an error; provide a valid explicit example for complex patterns, formats, or uniqueness constraints. This is a bounded generator, not a complete JSON Schema validator.
 - CRUD-oriented ordering with configurable operation order
@@ -166,6 +167,27 @@ and is not counted.
 node dist/index.js generate --spec ./openapi.yaml --negative --coverage ./generated/api.coverage.json
 ```
 
+## Response headers
+
+The headers a response declares (`responses.<code>.headers`) are checked by the test script of every
+request that expects that response, the negative variants included:
+
+- A header marked `required: true` (OpenAPI 3) must be present.
+- A header that is present must match its schema: type, `enum`, `pattern`, numeric and length bounds. The
+  value is read as the declared type first (`"12"` is the integer 12, `"true"` the boolean, `a, b` a
+  list of two).
+- A header that is not required and not sent has no test, so a documented but optional header never fails.
+- Swagger 2.0 has no `required` on headers: the type on the header is checked when the header is sent, and
+  presence is only checked when a header says `required: true` anyway. `collectionFormat` decides how a
+  list is split.
+- `format` is not checked on headers: HTTP dates (`Last-Modified`, `Expires`) are not RFC 3339 date-times,
+  and specs label them `date-time` often. An object-valued header, or one described by a media type, is
+  only checked for presence. A `Content-Type` entry is ignored, as OpenAPI says.
+
+The checks are on by default because they only test what the document states as fact. If a spec
+declares headers the server does not send yet, `responseHeaderAssertions: false` in the configuration
+leaves them out. The Bruno folder and the k6 script run the same checks.
+
 ## OAuth2 client credentials
 
 An API protected by OAuth2 needs an access token before its first request. By default the token is a
@@ -238,7 +260,7 @@ cd generated/bruno && bru run -r --env "<environment name>" --env-var bearerAuth
 k6 run -e baseUrl=https://staging.example.com -e bearerAuth_token=... generated/api.k6.js
 ```
 
-Requests, headers, bodies, authentication and variables are written in each tool's own form: `.bru` files in numbered folders with an environment file for Bruno, one script with a request table for k6. The test scripts are the collection's own. Each output carries a small stand-in for the part of Postman's `pm` object those scripts use, so a status check, a response-time limit, a schema assertion, an extracted identifier or a polled background job behaves the same in all three tools. In Bruno every `pm.test` is a test; in k6 it is a check, and the script's threshold fails the run when any check fails.
+Requests, headers, bodies, authentication and variables are written in each tool's own form: `.bru` files in numbered folders with an environment file for Bruno, one script with a request table for k6. The test scripts are the collection's own. Each output carries a small stand-in for the part of Postman's `pm` object those scripts use, so a status check, a response-time limit, a schema or header assertion, an extracted identifier or a polled background job behaves the same in all three tools. In Bruno every `pm.test` is a test; in k6 it is a check, and the script's threshold fails the run when any check fails.
 
 Things to know:
 
@@ -277,9 +299,10 @@ A change is breaking when a client written against the old version can fail agai
 | Parameters | new required one, became required, type changed, enum value removed | new optional one, removed, became optional, enum value added |
 | Request body | became required, media type removed, new required property, property became required, type changed | new optional property, property removed, media type added |
 | Responses | success (2xx) response removed, media type removed, property removed, property no longer required, type changed | response added, other response removed, property added, enum value added |
+| Response headers | removed, no longer required, type changed | added (required or not), became required, enum value added |
 | Security | an operation that needed no credentials now needs them | |
 
-Path parameters are matched by position, so renaming `{id}` to `{petId}` is not a change. Not compared: descriptions and examples, response headers, numeric and length limits, `additionalProperties`, callbacks, links and servers. A changed `oneOf` or `anyOf` is reported as non-breaking with a note to compare it by hand, because the command does not judge it.
+Path parameters are matched by position, so renaming `{id}` to `{petId}` is not a change. Header names are compared without regard to case, and a `Content-Type` header entry is ignored. Not compared: descriptions and examples, numeric and length limits, `additionalProperties`, callbacks, links and servers. A changed `oneOf` or `anyOf` is reported as non-breaking with a note to compare it by hand, because the command does not judge it.
 
 ## Optional AI planning
 
@@ -370,6 +393,7 @@ disabledOperations: [chargeCreditCard]
 includeTags: [Orders, Payments]
 excludeTags: [Internal]
 oauthClientCredentials: true
+responseHeaderAssertions: true # false leaves out the response header checks
 negativeScenarios:
   - operationId: createUser
     name: email is required
