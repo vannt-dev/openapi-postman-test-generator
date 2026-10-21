@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-26.04, windows-latest]
         node-version: [22, 24]
         # One Windows leg is enough to catch a Windows problem; the second doubled the
         # slowest part of the run for nothing.
