@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 - 2026-10-28
 
 - `generate --examples` (config `requestExamples: true`) sends every named example of a request body, not only the first: each further one gets its own request, `<request> (example: <summary or name>)`, with the same checks and the item id `op:<operationId>#example-<name>`, which `coverage --run` counts for the operation. Examples with only an `externalValue` are left out. Off by default, so existing collections do not change.
+- Security: zod 4.6.7, undici 8.12.3 and fast-uri 3.1.9 (#42), for new advisories in the versions before them.
 
 ## 0.10.0 - 2026-10-21
 
