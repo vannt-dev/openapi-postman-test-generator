@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `generate --examples` (config `requestExamples: true`) sends every named example of a request body, not only the first: each further one gets its own request, `<request> (example: <summary or name>)`, with the same checks and the item id `op:<operationId>#example-<name>`, which `coverage --run` counts for the operation. Examples with only an `externalValue` are left out. Off by default, so existing collections do not change.
+
 ## 0.10.0 - 2026-10-21
 
 - Check the response headers the spec declares (`responses.<code>.headers`). A header marked `required: true` must be present, and a header that is sent must match its schema (type, `enum`, `pattern`, bounds), its text read as the declared type first. An optional header that is not sent gets no test, `format` is not checked on headers, and `Content-Type` entries are ignored. Swagger 2.0 headers are checked when sent, split by `collectionFormat`. Negative variants check the headers of the error response they provoke, and the Bruno and k6 outputs run the same checks. On by default; `responseHeaderAssertions: false` in the configuration turns it off.

@@ -61,6 +61,7 @@ const projectConfigSchema = z.object({
   responseTimeMs: z.number().positive().optional(),
   safeMode: z.boolean().optional(),
   includeNegative: z.boolean().optional(),
+  requestExamples: z.boolean().optional(),
   variables: z.record(z.string(), z.string()).optional(),
   operationOrder: z.array(z.string().min(1)).optional(),
   variableMappings: z.array(variableMappingSchema).optional(),

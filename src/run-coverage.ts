@@ -3,14 +3,15 @@
  * documented operations and responses the run exercised and whether their checks passed.
  *
  * The join key is the item id the generator writes on every request it makes for an operation
- * (`op:<operationId>`, `op:<operationId>#negative-<n>` for a negative variant). Newman copies it into
+ * (`op:<operationId>`, `op:<operationId>#negative-<n>` for a negative variant, `#example-<name>` for a
+ * named request example). Newman copies it into
  * the report, so no URL has to be matched. Requests without such an id (setup and teardown steps, the
  * OAuth2 token request, job polls, anything added by hand) are reported as extra.
  */
 import { CoverageReport, CoverageSkipReason } from './types';
 
 const OPERATION_PREFIX = 'op:';
-const NEGATIVE_SUFFIX = /#negative-\d+$/;
+const VARIANT_SUFFIX = /#(?:negative-\d+|example-.+)$/;
 
 /** The item id of the request the generator writes for an operation. */
 export function operationItemId(operationId: string): string {
@@ -22,10 +23,15 @@ export function negativeItemId(operationId: string, index: number): string {
   return `${operationItemId(operationId)}#negative-${index}`;
 }
 
+/** The item id of the request sent with one named example of the request body. */
+export function exampleItemId(operationId: string, exampleName: string): string {
+  return `${operationItemId(operationId)}#example-${encodeURIComponent(exampleName)}`;
+}
+
 /** The operation a generated item id stands for, or undefined for any other request. */
 export function operationIdOfItem(itemId: unknown): string | undefined {
   if (typeof itemId !== 'string' || !itemId.startsWith(OPERATION_PREFIX)) return undefined;
-  return itemId.slice(OPERATION_PREFIX.length).replace(NEGATIVE_SUFFIX, '');
+  return itemId.slice(OPERATION_PREFIX.length).replace(VARIANT_SUFFIX, '');
 }
 
 /**
