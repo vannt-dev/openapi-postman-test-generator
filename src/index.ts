@@ -14,9 +14,9 @@ import { AgentPlan, CoverageReport, OpenApiSpec, PostmanCollection, PostmanEnvir
 
 type Flags = Record<string, string | boolean | string[]>;
 
-const BOOLEAN_FLAGS = new Set(['negative', 'safe', 'ai', 'run', 'bail', 'help', 'allow-breaking', 'oauth-token']);
+const BOOLEAN_FLAGS = new Set(['negative', 'examples', 'safe', 'ai', 'run', 'bail', 'help', 'allow-breaking', 'oauth-token']);
 const REPEATABLE_FLAGS = new Set(['env-var', 'tag', 'exclude-tag']);
-const GENERATE_FLAGS = new Set(['tag', 'exclude-tag', 'coverage', 'oauth-token', 'spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var', 'bruno', 'k6']);
+const GENERATE_FLAGS = new Set(['tag', 'exclude-tag', 'coverage', 'oauth-token', 'spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'examples', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var', 'bruno', 'k6']);
 const CONVERT_FLAGS = new Set(['collection', 'environment', 'bruno', 'k6']);
 const DIFF_FLAGS = new Set(['old', 'new', 'format', 'allow-breaking']);
 const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var']);
@@ -40,6 +40,7 @@ Generate options:
   --base-url <url>         Override the server URL
   --response-time <ms>     Response-time assertion threshold
   --negative               Generate negative test variants
+  --examples               One request per named request-body example (the first is always sent)
   --safe                   Skip DELETE operations
   --tag <names>            Only the operations with one of these tags (repeatable, or
                            comma-separated; "Default" names the untagged ones)
@@ -191,6 +192,7 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
     responseTimeMs: numberFlag(flags, 'response-time') || config.responseTimeMs,
     safeMode: Boolean(flags.safe) || config.safeMode,
     includeNegative: Boolean(flags.negative) || config.includeNegative || Boolean(agentPlan?.negativeScenarios.length),
+    requestExamples: Boolean(flags.examples) || config.requestExamples,
     variables: { ...(config.variables || {}), ...(profile?.variables || {}) },
     operationOrder: agentPlan?.operationOrder || config.operationOrder,
     variableMappings: agentPlan?.variableMappings || config.variableMappings,

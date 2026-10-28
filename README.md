@@ -107,6 +107,15 @@ node dist/index.js generate \
   --config ./examples/openapi-postman.config.yaml
 ```
 
+A request body with several named examples (`content.<type>.examples`) is sent with the first one. To
+send every one, add `--examples` (or `requestExamples: true` in the configuration): each further example
+gets its own request, named `<request> (example: <summary or name>)`, with the same checks. Run coverage
+counts those requests for their operation. Examples without an inline `value` are left out.
+
+```bash
+node dist/index.js generate --spec ./openapi.yaml --examples
+```
+
 Generate the tests of a part of the API. A tag filter keeps the operations that carry one of the tags, or
 leaves out the ones that do; names are compared without regard to case, a list may be comma-separated or
 the flag repeated, and `Default` names the operations without tags:
@@ -421,6 +430,7 @@ baseUrl: https://test-api.example.com
 responseTimeMs: 2000
 safeMode: true
 includeNegative: true
+requestExamples: false
 variables:
   tenantId: test-tenant
 operationOrder: [login, createUser, getUser, deleteUser]

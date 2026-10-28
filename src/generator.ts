@@ -1,7 +1,7 @@
 import { exampleFor } from './generator/example';
 import { toJsonSchema } from './generator/json-schema';
 import { classifySecurityScheme } from './generator/security';
-import { documentedStatus, negativeItemId, operationItemId } from './run-coverage';
+import { documentedStatus, exampleItemId, negativeItemId, operationItemId } from './run-coverage';
 import {
   AsyncOperation, CoverageOperation, CoverageReport, CoverageSkipReason,
   Header, MediaType, NegativeScenario, OpenApiSpec, Operation, Parameter, PathItem, PostmanAuth,
@@ -33,6 +33,8 @@ export interface GeneratorOptions {
   responseTimeMs?: number;
   safeMode?: boolean;
   includeNegative?: boolean;
+  /** One more request for each further named example of a request body (the first is always sent). */
+  requestExamples?: boolean;
   variables?: Record<string, string>;
   operationOrder?: string[];
   variableMappings?: VariableMapping[];
@@ -262,6 +264,12 @@ export class OpenApiPostmanGenerator {
       const items = folders.get(tag) || [];
       // The ids link the requests of a Newman report back to the operation (coverage --run).
       const generated: PostmanItem[] = [{ id: operationItemId(id), ...this.generateItem(entry.route, entry.method, entry.pathItem, entry.operation) }];
+      if (this.options.requestExamples) {
+        for (const [name, example] of this.furtherBodyExamples(entry.operation)) {
+          const item = this.generateItem(entry.route, entry.method, entry.pathItem, entry.operation, example);
+          generated.push({ id: exampleItemId(id, name), ...item, name: `${generated[0].name} (example: ${example.summary || name})` });
+        }
+      }
       const asyncOperation = this.asyncOperationFor(id);
       if (asyncOperation) generated.push(this.pollItem(asyncOperation, generated[0]));
       if (this.options.includeNegative) {
@@ -323,7 +331,7 @@ export class OpenApiPostmanGenerator {
     return { name, values, _postman_variable_scope: 'environment', _postman_exported_using: 'swagger-to-postman-agent' };
   }
 
-  private generateItem(route: string, method: string, pathItem: PathItem, operation: Operation): PostmanItem {
+  private generateItem(route: string, method: string, pathItem: PathItem, operation: Operation, bodyExample?: { value?: unknown }): PostmanItem {
     const params = this.mergeParameters(pathItem.parameters, operation.parameters);
     const operationId = this.operationId(route, method, operation);
     const headers: PostmanHeader[] = [];
@@ -359,7 +367,7 @@ export class OpenApiPostmanGenerator {
       }
     }
     if (cookies.length) headers.push({ key: 'Cookie', value: cookies.join('; ') });
-    const body = this.generateBody(operation, params, headers, operationId);
+    const body = this.generateBody(operation, params, headers, operationId, bodyExample);
     if (!headers.some(header => header.key.toLowerCase() === 'accept')) {
       headers.push({ key: 'Accept', value: this.preferredResponseType(operation) });
     }
@@ -384,7 +392,22 @@ export class OpenApiPostmanGenerator {
     };
   }
 
-  private generateBody(operation: Operation, params: Parameter[], headers: PostmanHeader[], operationId: string): PostmanBody | undefined {
+  /**
+   * The named examples of a request body after the first, which is the one every collection sends;
+   * those without an inline value (externalValue only) are left out.
+   */
+  private furtherBodyExamples(operation: Operation): Array<[string, { value?: unknown; summary?: string }]> {
+    if (!operation.requestBody) return [];
+    const requestBody = this.resolve<RequestBody>(operation.requestBody);
+    const media = requestBody.content[this.preferredContentType(requestBody.content)];
+    if (!media?.examples || media.example !== undefined) return [];
+    return Object.entries(media.examples)
+      .slice(1)
+      .map(([name, example]) => [name, this.resolve<{ value?: unknown; summary?: string }>(example)] as [string, { value?: unknown; summary?: string }])
+      .filter(([, example]) => example.value !== undefined);
+  }
+
+  private generateBody(operation: Operation, params: Parameter[], headers: PostmanHeader[], operationId: string, bodyExample?: { value?: unknown }): PostmanBody | undefined {
     const swaggerBody = params.find(p => p.in === 'body');
     const formParams = params.filter(p => p.in === 'formData');
     if (formParams.length) {
@@ -418,7 +441,7 @@ export class OpenApiPostmanGenerator {
         ? { mode: 'formdata', formdata: entries }
         : { mode: 'urlencoded', urlencoded: entries };
     }
-    let example = media?.example ?? this.firstNamedExample(media) ?? exampleFor(schema!, this.resolveSchema);
+    let example = bodyExample ? bodyExample.value : media?.example ?? this.firstNamedExample(media) ?? exampleFor(schema!, this.resolveSchema);
     if (example && typeof example === 'object' && !Array.isArray(example)) {
       example = this.applyMappingsToBody(example as Record<string, unknown>, operationId);
     }

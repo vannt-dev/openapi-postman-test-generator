@@ -246,6 +246,7 @@ export interface ProjectConfig {
   responseTimeMs?: number;
   safeMode?: boolean;
   includeNegative?: boolean;
+  requestExamples?: boolean;
   variables?: Record<string, string>;
   operationOrder?: string[];
   variableMappings?: VariableMapping[];
