@@ -1,0 +1,46 @@
+name: Publish to npm
+
+# Publishes the package to npm with provenance through npm trusted publishing: npmjs.com trusts this
+# repository and this workflow file, so no token lives in the repository. Runs on every release tag
+# (`v*`, which must equal the package version) and by hand, as a dry run unless told otherwise.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Check and pack only; publish nothing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      # trusted publishing needs npm 11.5.1 or newer; Node 22 ships an older npm
+      - run: npm install -g npm@11
+      - run: npm ci
+      # lint, build, the smoke and end-to-end tests (real Newman), the package test and the audit
+      - run: npm run check
+      - name: The tag, if any, must be the package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test "${GITHUB_REF#refs/tags/v}" = "$version" || { echo "tag $GITHUB_REF is not v$version"; exit 1; }
+      - name: List what would be published
+        run: npm pack --dry-run --ignore-scripts
+      # prepublishOnly runs `npm run check` again; it just passed on this same tree
+      - name: Publish
+        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        run: npm publish --provenance --access public --ignore-scripts
