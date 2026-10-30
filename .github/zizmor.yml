@@ -1,0 +1,12 @@
+rules:
+  # A cooldown would hold back every version update, which is the owner's choice to make.
+  # Security updates are not held back either way.
+  dependabot-cooldown:
+    ignore:
+      - dependabot.yml
+  unpinned-uses:
+    config:
+      policies:
+        # The caller follows the v0 tag of repokeeper's reusable workflow, which a repokeeper
+        # release moves on purpose.
+        vannt-dev/repokeeper/*: ref-pin
