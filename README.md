@@ -13,6 +13,11 @@ Generate runnable Postman collections, environments, workflow-aware test scripts
 
 The core generator is deterministic. An optional AI planner uses structured model output to infer operation order and identifier mappings, while the deterministic generator remains responsible for producing the collection.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vannt-dev/openapi-postman-test-generator/main/docs/diagrams/overview-dark.svg">
+  <img alt="generate reads an OpenAPI 3.x or Swagger 2.0 spec, an optional configuration file and, optionally, the operation order and identifier mappings of an AI planner (Codex, Claude Code, Antigravity or OpenAI), and writes a Postman collection and environment, a Bruno folder and k6 script, and a coverage report; run executes the collection with Newman into HTML, JUnit and JSON reports, and coverage says what the run exercised of the document." src="https://raw.githubusercontent.com/vannt-dev/openapi-postman-test-generator/main/docs/diagrams/overview-light.svg">
+</picture>
+
 ## Features
 
 - Swagger 2.0 and OpenAPI 3.x files or URLs

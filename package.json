@@ -44,7 +44,8 @@
     "test:package": "node test/package.js",
     "test": "npm run build && npm run test:smoke && npm run test:e2e",
     "check": "npm run lint && npm test && npm run test:package && npm audit --omit=dev",
-    "prepublishOnly": "npm run check"
+    "prepublishOnly": "npm run check",
+    "diagrams": "npx -y @mermaid-js/mermaid-cli@latest -i docs/diagrams/overview.mmd -c docs/diagrams/mermaid.config.json -b transparent -t default -o docs/diagrams/overview-light.svg && npx -y @mermaid-js/mermaid-cli@latest -i docs/diagrams/overview.mmd -c docs/diagrams/mermaid.config.json -b transparent -t dark -o docs/diagrams/overview-dark.svg"
   },
   "dependencies": {
     "@apidevtools/swagger-parser": "^13.0.0",
