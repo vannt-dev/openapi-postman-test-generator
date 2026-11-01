@@ -1,0 +1,25 @@
+%% Re-render the SVGs after editing: npm run diagrams
+flowchart TB
+  spec["OpenAPI 3.x or<br/>Swagger 2.0 spec<br/>file or URL"]
+  config["Configuration file<br/>order, profiles,<br/>setup, teardown"]
+  ai["Optional AI planner<br/>Codex, Claude Code,<br/>Antigravity, OpenAI:<br/>operation order, ID mappings"]
+
+  gen(["generate<br/>deterministic generator"])
+
+  collection["Postman collection<br/>and environment"]
+  other["Bruno folder,<br/>k6 script"]
+  cov["Coverage report<br/>of the collection"]
+
+  subgraph running ["run and coverage"]
+    direction LR
+    run(["run<br/>with Newman"]) --> reports["Reports<br/>HTML, JUnit, JSON"] --> runcov["Run coverage<br/>what the run exercised"]
+  end
+
+  spec --> gen
+  config --> gen
+  ai -.-> gen
+  gen --> collection
+  gen --> other
+  gen --> cov
+  collection --> running
+  cov --> running
