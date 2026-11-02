@@ -8,6 +8,12 @@ updates:
     groups:
       development-dependencies:
         dependency-type: development
+      # One pull request for runtime minors and patches (openai ships one most weeks).
+      production-minor-and-patch:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
     ignore:
       # typescript-eslint 8 accepts typescript <6.1.0; a newer one cannot be installed next to it.
       # Remove this once typescript-eslint supports TypeScript 7.
