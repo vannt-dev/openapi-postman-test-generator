@@ -43,7 +43,19 @@ jobs:
           test "${GITHUB_REF#refs/tags/v}" = "$version" || { echo "tag $GITHUB_REF is not v$version"; exit 1; }
       - name: List what would be published
         run: npm pack --dry-run --ignore-scripts
+      # npm never takes a version twice: a rerun, or a run by hand after the tag's run, has nothing
+      # left to publish and passes instead of failing on "cannot publish over".
+      - name: Is this version on npm already?
+        id: npm
+        run: |
+          spec="$(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")"
+          if npm view "$spec" version >/dev/null 2>&1; then
+            echo "$spec is on npm already; nothing to publish"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
       # prepublishOnly runs `npm run check` again; it just passed on this same tree
       - name: Publish
-        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        if: ${{ steps.npm.outputs.published == 'false' && (github.event_name == 'push' || !inputs.dry_run) }}
         run: npm publish --provenance --access public --ignore-scripts
