@@ -8,22 +8,27 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%AA%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
   :root{
     color-scheme: light dark;
-    --paper:#EEF3F7; --surface:#FFFFFF; --ink:#0B2036; --ink-soft:#3C5871;
-    --line:#C9D8E2; --accent:#A65A21; --accent-ink:#FFF8F0;
+    --paper:#f7f8fc; --surface:#ffffff; --surface-2:#eef1f8; --ink:#0f172a; --ink-soft:#55607a;
+    --line:#dde2ee; --accent:#A65A21; --accent-ink:#FFF8F0;
+    --accent-2:#0d9488; --accent-soft:#f6eee8;
+    --shadow:0 1px 2px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.06);
     --pass:#2E8B57; --fail:#B23B32; --warn:#9C7A2A;
-    --console-bg:#0D1B27; --console-line:#223850; --console-ink:#E7EEF3; --console-soft:#7FA0B8;
+    --console-bg:#0f172a; --console-line:#26324d; --console-ink:#e2e8f0; --console-soft:#7FA0B8;
     --console-key:#E1935A; --console-string:#8FD0E0;
     --console-pass:#5CC584; --console-fail:#E2685D; --console-warn:#E0B25A;
     --console-get:#6FB1E0; --console-post:#E1935A;
   }
   @media (prefers-color-scheme: dark){
     :root{
-      --paper:#0A1622; --surface:#10202E; --ink:#E7EEF3; --ink-soft:#93AEC2;
-      --line:#1E3446; --accent:#E1935A; --accent-ink:#14100A;
+      --paper:#0b1020; --surface:#121a2e; --surface-2:#18223a; --ink:#e7ecf6; --ink-soft:#9aa6c2;
+      --line:#26324d; --accent:#E1935A; --accent-ink:#14100A;
+      --accent-2:#2dd4bf; --accent-soft:#2a1d14;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+      --console-bg:#070b16; --console-line:#26324d; --console-ink:#dbe4f5;
       --pass:#5CC584; --fail:#E2685D; --warn:#E0B25A;
     }
   }
@@ -32,7 +37,7 @@
   html{ background:var(--paper); }
   body{
     margin:0; background:var(--paper); color:var(--ink);
-    font-family:"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-family:"Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
     line-height:1.6; font-size:16px;
   }
   img{ max-width:100%; }
@@ -40,10 +45,10 @@
   a:focus-visible, button:focus-visible{
     outline:2px solid var(--accent); outline-offset:2px; border-radius:2px;
   }
-  h1,h2,h3{ font-family:"Space Mono", ui-monospace, monospace; font-weight:700; text-wrap:balance; line-height:1.15; margin:0; }
-  code, .mono{ font-family:"IBM Plex Mono", ui-monospace, monospace; }
+  h1,h2,h3{ font-family:"Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif; font-weight:800; letter-spacing:-.02em; text-wrap:balance; line-height:1.15; margin:0; }
+  code, .mono{ font-family:"JetBrains Mono", ui-monospace, monospace; }
   .eyebrow{
-    font-family:"IBM Plex Mono", monospace; font-size:.72rem; letter-spacing:.09em;
+    font-family:"JetBrains Mono", monospace; font-size:.72rem; letter-spacing:.09em;
     text-transform:uppercase; color:var(--ink-soft);
   }
   p{ margin:0; }
@@ -54,35 +59,52 @@
 
   /* ---- header / title block ---- */
   .titlebar{
-    position:sticky; top:0; z-index:20; background:var(--paper);
+    position:sticky; top:0; z-index:20;
+    backdrop-filter:saturate(160%) blur(10px); -webkit-backdrop-filter:saturate(160%) blur(10px);
+    background:color-mix(in srgb, var(--paper) 82%, transparent);
     border-bottom:1px solid var(--line);
   }
   .titlebar-inner{
-    display:flex; align-items:center; justify-content:space-between; gap:1rem;
-    padding:.85rem clamp(1.1rem,4vw,2.2rem);
+    display:flex; align-items:center; justify-content:space-between; gap:1rem; min-height:60px;
+    max-width:1080px; margin:0 auto; padding:.4rem clamp(1.1rem,4vw,2.2rem);
   }
+  .titlebar .mark{ gap:10px; }
+  .logo{ width:30px; height:30px; flex:none; border-radius:8px; background:var(--accent); display:grid; place-items:center; }
   .mark{
-    font-family:"Space Mono", monospace; font-weight:700; font-size:1rem;
+    font-family:"JetBrains Mono", monospace; font-weight:700; font-size:1rem;
     letter-spacing:.02em; display:flex; align-items:center; gap:.4em;
   }
   .mark .arrow{ color:var(--accent); }
   nav.tabs{ display:flex; gap:1.4rem; }
   nav.tabs a{ color:var(--ink-soft); text-decoration:none; font-size:.86rem; }
   nav.tabs a:hover{ color:var(--accent); }
-  .meta-tags{ display:flex; gap:.9rem; font-family:"IBM Plex Mono",monospace; font-size:.72rem; color:var(--ink-soft); }
+  .meta-tags{ display:flex; gap:.9rem; font-family:"JetBrains Mono",monospace; font-size:.72rem; color:var(--ink-soft); }
   @media (max-width:720px){ nav.tabs, .meta-tags{ display:none; } }
 
   /* ---- hero ---- */
   .hero{ position:relative; padding-top:clamp(2.8rem,7vw,4.8rem); }
-  .hero-grid{ display:grid; grid-template-columns:1.15fr .85fr; gap:clamp(1.6rem,4vw,2.8rem); align-items:start; }
-  @media (max-width:860px){ .hero-grid{ grid-template-columns:1fr; } }
-  .hero h1{ font-size:clamp(2.05rem,1.35rem + 2.6vw,3.35rem); margin:.6rem 0 1rem; }
-  .hero .prose{ font-size:1.05rem; max-width:52ch; }
+  .hero-grid{ display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr); gap:48px; align-items:center; }
+  @media (max-width:860px){ .hero-grid{ grid-template-columns:minmax(0,1fr); gap:36px; } }
+  .hero h1{ font-size:clamp(34px,5.4vw,56px); line-height:1.1; letter-spacing:-.03em; margin:0 0 18px; }
+  .hero h1 .grad{
+    background:linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .hero .eyebrow{
+    display:inline-flex; align-items:center; gap:10px; margin:0 0 18px; padding:6px 12px;
+    font-size:11.5px; font-weight:600; line-height:1.2; letter-spacing:.12em;
+    color:var(--accent); background:var(--accent-soft);
+    border:1px solid color-mix(in srgb, var(--accent) 25%, transparent); border-radius:999px;
+  }
+  .pulse{ width:7px; height:7px; flex:none; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent); }
+  .hero .prose{ font-size:clamp(17px,2vw,19px); max-width:52ch; }
   .trustline{ margin-top:1rem; font-size:.92rem; color:var(--ink-soft); border-left:2px solid var(--accent); padding-left:.75rem; }
   .cta-row{ display:flex; flex-wrap:wrap; gap:.75rem; margin-top:1.6rem; }
+  .trust{ display:flex; flex-wrap:wrap; gap:6px 18px; margin:22px 0 0; padding:0; list-style:none; color:var(--ink-soft); font-size:13px; }
+  .trust li::before{ content:'·'; margin-right:8px; color:var(--accent); font-weight:800; }
   .btn{
-    font-family:"IBM Plex Mono", monospace; font-size:.85rem; padding:.68rem 1.05rem;
-    border-radius:3px; text-decoration:none; display:inline-flex; align-items:center; gap:.5em;
+    font-family:"JetBrains Mono", monospace; font-size:.85rem; padding:12px 20px; font-weight:600;
+    border-radius:10px; text-decoration:none; display:inline-flex; align-items:center; gap:.5em;
     border:1px solid var(--line); color:var(--ink); background:var(--surface); cursor:pointer;
   }
   .btn.primary{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
@@ -95,11 +117,11 @@
   }
   .console-head{
     display:flex; align-items:center; gap:.5rem; padding:.55rem .85rem;
-    border-bottom:1px solid var(--console-line); font-family:"IBM Plex Mono",monospace;
+    border-bottom:1px solid var(--console-line); font-family:"JetBrains Mono",monospace;
     font-size:.72rem; color:var(--console-soft); letter-spacing:.03em;
   }
   .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; }
-  .console-body{ padding:.95rem 1rem 1.1rem; font-family:"IBM Plex Mono",monospace; font-size:.83rem; overflow-x:auto; }
+  .console-body{ padding:.95rem 1rem 1.1rem; font-family:"JetBrains Mono",monospace; font-size:.83rem; overflow-x:auto; }
   .console-body pre{ margin:0; white-space:pre; }
   .console .prompt{ color:var(--console-soft); }
   .console .cmd{ color:var(--console-ink); }
@@ -112,14 +134,14 @@
 
   /* ---- pipeline ---- */
   .section-head{ display:flex; align-items:baseline; gap:.8rem; margin-bottom:1.6rem; }
-  .section-head .num{ font-family:"IBM Plex Mono",monospace; color:var(--accent); font-size:.85rem; }
+  .section-head .num{ font-family:"JetBrains Mono",monospace; color:var(--accent); font-size:.85rem; }
   .section-head h2{ font-size:clamp(1.35rem,1.1rem + .8vw,1.85rem); }
   .pipeline-grid{ display:grid; grid-template-columns:1fr auto 1fr auto 1fr; gap:.9rem; align-items:stretch; }
   @media (max-width:900px){ .pipeline-grid{ grid-template-columns:1fr; } .pipe-arrow{ transform:rotate(90deg); margin:.2rem auto; } }
-  .pipe-arrow{ align-self:center; color:var(--accent); font-family:"Space Mono",monospace; font-size:1.3rem; }
+  .pipe-arrow{ align-self:center; color:var(--accent); font-family:"JetBrains Mono",monospace; font-size:1.3rem; }
   .stage{ background:var(--surface); border:1px solid var(--line); border-radius:6px; display:flex; flex-direction:column; min-width:0; }
   .stage-label{
-    font-family:"IBM Plex Mono",monospace; font-size:.7rem; letter-spacing:.08em; text-transform:uppercase;
+    font-family:"JetBrains Mono",monospace; font-size:.7rem; letter-spacing:.08em; text-transform:uppercase;
     color:var(--ink-soft); padding:.7rem .9rem .5rem;
   }
   .stage-body{ padding:0 .9rem .95rem; }
@@ -127,12 +149,12 @@
   .steps{ list-style:none; margin:0; padding:0; counter-reset:step; }
   .steps li{ counter-increment:step; display:flex; gap:.6rem; padding:.42rem 0; font-size:.86rem; border-top:1px dashed var(--line); }
   .steps li:first-child{ border-top:none; }
-  .steps li::before{ content:counter(step); font-family:"IBM Plex Mono",monospace; color:var(--accent); font-size:.76rem; flex:none; width:1.1em; }
+  .steps li::before{ content:counter(step); font-family:"JetBrains Mono",monospace; color:var(--accent); font-size:.76rem; flex:none; width:1.1em; }
 
   /* ---- collection tree / demo ---- */
   .demo-grid{ display:grid; grid-template-columns:1fr 1fr; gap:clamp(1.4rem,3vw,2.2rem); align-items:start; }
   @media (max-width:860px){ .demo-grid{ grid-template-columns:1fr; } }
-  .tree{ font-family:"IBM Plex Mono",monospace; font-size:.85rem; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:1rem 1.1rem; }
+  .tree{ font-family:"JetBrains Mono",monospace; font-size:.85rem; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:1rem 1.1rem; }
   .tree .folder{ color:var(--ink-soft); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; margin-bottom:.55rem; }
   .tree .row{ display:flex; align-items:center; gap:.55rem; padding:.3rem 0; border-top:1px dashed var(--line); }
   .tree .row:first-of-type{ border-top:none; }
@@ -142,40 +164,71 @@
   .neg{ color:var(--warn); font-size:.72rem; }
   .reports{ display:flex; flex-direction:column; gap:.6rem; margin-top:1rem; }
   .report-chip{ display:flex; gap:.7rem; align-items:baseline; padding:.55rem .8rem; background:var(--surface); border:1px solid var(--line); border-radius:5px; }
-  .report-chip .file{ font-family:"IBM Plex Mono",monospace; font-size:.82rem; color:var(--accent); flex:none; }
+  .report-chip .file{ font-family:"JetBrains Mono",monospace; font-size:.82rem; color:var(--accent); flex:none; }
   .report-chip .desc{ font-size:.83rem; color:var(--ink-soft); }
 
   /* ---- spec sheet table ---- */
   .spec-table{ border-top:1px solid var(--line); margin:0; }
   .spec-row{ display:grid; grid-template-columns:220px 1fr; gap:1rem; padding:.85rem 0; border-bottom:1px solid var(--line); }
   @media (max-width:640px){ .spec-row{ grid-template-columns:1fr; gap:.25rem; } }
-  .spec-row dt{ font-family:"IBM Plex Mono",monospace; font-size:.78rem; color:var(--ink-soft); letter-spacing:.03em; }
+  .spec-row dt{ font-family:"JetBrains Mono",monospace; font-size:.78rem; color:var(--ink-soft); letter-spacing:.03em; }
   .spec-row dd{ margin:0; font-size:.93rem; }
 
   /* ---- AI strip ---- */
   .ai-note{ font-size:.93rem; color:var(--ink-soft); max-width:64ch; }
   .badges{ display:flex; flex-wrap:wrap; gap:.55rem; margin-top:1.1rem; }
-  .badge{ font-family:"IBM Plex Mono",monospace; font-size:.78rem; padding:.42rem .8rem; border:1px solid var(--line); border-radius:20px; color:var(--ink-soft); }
+  .badge{ font-family:"JetBrains Mono",monospace; font-size:.78rem; padding:.42rem .8rem; border:1px solid var(--line); border-radius:20px; color:var(--ink-soft); }
 
   /* ---- quickstart ---- */
   .qs-grid{ display:flex; flex-direction:column; gap:1.4rem; }
   .qs-row{ display:grid; grid-template-columns:2.2rem minmax(0,1fr); gap:1rem; }
-  .qs-num{ font-family:"Space Mono",monospace; font-weight:700; color:var(--accent); font-size:1.1rem; }
-  .qs-row h3{ font-family:"IBM Plex Sans",sans-serif; font-weight:600; font-size:1.02rem; margin-bottom:.35rem; }
+  .qs-num{ font-family:"JetBrains Mono",monospace; font-weight:700; color:var(--accent); font-size:1.1rem; }
+  .qs-row h3{ font-family:"Be Vietnam Pro",sans-serif; font-weight:600; font-size:1.02rem; margin-bottom:.35rem; }
 
   footer{ border-top:1px solid var(--line); padding:2.4rem 0 3rem; }
   .foot-grid{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:1.4rem; align-items:flex-end; }
   .foot-links{ display:flex; gap:1.4rem; font-size:.86rem; }
   .foot-links a{ color:var(--ink-soft); text-decoration:none; }
   .foot-links a:hover{ color:var(--accent); }
-  .foot-tags{ font-family:"IBM Plex Mono",monospace; font-size:.72rem; color:var(--ink-soft); display:flex; gap:.9rem; }
+  .foot-tags{ font-family:"JetBrains Mono",monospace; font-size:.72rem; color:var(--ink-soft); display:flex; gap:.9rem; }
+
+  /* ---- the aiws-factory look (palette, type, cards) with a hero like junto's; own accent kept ---- */
+  body{ -webkit-font-smoothing:antialiased; }
+  .wrap{ max-width:1080px; }
+  [id]{ scroll-margin-top:72px; }
+  .hero-term{ position:relative; }
+  .hero-term::before{
+    content:''; position:absolute; inset:12% -4% -8% 8%; z-index:0;
+    background:color-mix(in srgb, var(--accent) 30%, transparent); filter:blur(52px); opacity:.55;
+  }
+  .term{
+    position:relative; z-index:1; overflow:hidden; transform:rotate(1deg);
+    background:var(--console-bg); color:var(--console-ink); border-radius:14px;
+    border:1px solid color-mix(in srgb, var(--console-ink) 14%, transparent);
+    box-shadow:0 28px 60px rgba(15,23,42,.25);
+  }
+  .term-bar{ display:flex; align-items:center; gap:7px; padding:12px 16px; border-bottom:1px solid color-mix(in srgb, var(--console-ink) 12%, transparent); }
+  .term-bar span{ width:9px; height:9px; border-radius:50%; background:color-mix(in srgb, var(--console-ink) 28%, transparent); }
+  .term-bar code{ margin-left:auto; font-size:12px; color:color-mix(in srgb, var(--console-ink) 60%, transparent); }
+  .term pre{ margin:0; padding:18px 20px 22px; font-family:"JetBrains Mono",monospace; font-size:12.5px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .term .p{ color:color-mix(in srgb, var(--accent) 45%, #ffffff); }
+  .term .ok{ color:var(--console-pass); font-weight:600; }
+  @media (max-width:860px){ .term{ transform:none; } }
+  .console{ border-radius:12px; }
+  .stage, .tree{ border-radius:14px; box-shadow:var(--shadow); }
+  .stage .stage-body.console{ border-radius:0 0 13px 13px !important; }
+  .report-chip{ border-radius:10px; box-shadow:var(--shadow); }
+  /* a step with inline code stays one line of text, not a row of flex items */
+  .steps li{ display:block; position:relative; padding-left:1.7em; }
+  .steps li::before{ position:absolute; left:0; top:.5rem; }
+  .hero h1{ font-size:clamp(34px,4.8vw,52px); }
 </style>
 </head>
 <body>
 
 <div class="titlebar">
   <div class="titlebar-inner">
-    <div class="mark"><span>spec</span><span class="arrow">⟶</span><span>tests</span></div>
+    <a class="mark" href="#top" style="color:var(--ink); text-decoration:none;"><span class="logo" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 32 32"><path d="M6 16h18M18 9l7 7-7 7" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>spec</span><span class="arrow">⟶</span><span>tests</span></a>
     <nav class="tabs">
       <a href="#how-it-works">How it works</a>
       <a href="#demo">Demo</a>
@@ -191,8 +244,8 @@
   <section class="hero" id="top">
     <div class="hero-grid">
       <div>
-        <p class="eyebrow">openapi-postman-test-generator · cli for node.js</p>
-        <h1>Turn an OpenAPI spec into a running Postman suite.</h1>
+        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span><span>openapi-postman-test-generator · cli for node.js</span></p>
+        <h1>Turn an OpenAPI spec into <span class="grad">a running Postman suite.</span></h1>
         <p class="prose">Point it at a Swagger 2.0 or OpenAPI 3.x document and it generates a full Postman collection — auth, example bodies, JSON Schema assertions, and negative tests — ready to run with Newman.</p>
         <p class="trustline">The generator is deterministic. An optional AI planner may propose operation order and variable mappings — it never writes the Postman scripts.</p>
         <div class="cta-row">
@@ -201,18 +254,21 @@
           </button>
           <a class="btn" href="https://github.com/vannt-dev/openapi-postman-test-generator" target="_blank" rel="noopener">View source →</a>
         </div>
+        <ul class="trust">
+          <li>MIT</li>
+          <li>Node.js 22 or later</li>
+          <li>Swagger 2.0 and OpenAPI 3.x</li>
+        </ul>
       </div>
-      <div class="console" aria-label="terminal example">
-        <div class="console-head"><span class="dot" style="background:var(--console-fail)"></span><span class="dot" style="background:var(--console-warn)"></span><span class="dot" style="background:var(--console-pass)"></span><span style="margin-left:.4rem">bash</span></div>
-        <div class="console-body"><pre><span class="prompt">$</span> <span class="cmd">openapi-postman generate</span> <span class="flag">--spec</span> ./petstore.openapi.yaml <span class="flag">--negative</span>
-
-<span class="out">Generated 8 requests</span>
-<span class="out">Collection:   ./generated/api.collection.json</span>
-<span class="out">Environment:  ./generated/api.environment.json</span>
-
-<span class="prompt">$</span> <span class="cmd">openapi-postman run</span> <span class="flag">--collection</span> ./generated/api.collection.json
-
-<span class="ok">✓</span> report.html · junit.xml · newman.json</pre></div>
+      <div class="hero-term" aria-label="Output of a real run on fixtures/petstore.openapi.yaml">
+        <div class="term">
+          <div class="term-bar"><span></span><span></span><span></span><code>openapi-postman generate</code></div>
+          <pre><span class="p">$</span> openapi-postman generate --spec ./petstore.openapi.yaml --negative
+<span class="ok">Generated 10 requests</span>
+Collection:   Q:\generated\api.collection.json
+Environment:  Q:\generated\api.environment.json
+Coverage:     3/3 operations, 3/3 documented responses</pre>
+        </div>
       </div>
     </div>
   </section>
