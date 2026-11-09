@@ -348,8 +348,10 @@ pm.test(<span class="s">"Response matches the schema…"</span>, …)</pre></div
           <div class="row"><span class="method post">POST</span><span class="neg">[Negative] Create pet - invalid status</span></div>
           <div class="row"><span class="method get">GET</span><span>List pets</span></div>
           <div class="row"><span class="method get">GET</span><span class="neg">[Negative] List pets - unauthorized</span></div>
+          <div class="row"><span class="method get">GET</span><span class="neg">[Negative] List pets - out-of-range limit</span></div>
           <div class="row"><span class="method get">GET</span><span>Get pet</span></div>
           <div class="row"><span class="method get">GET</span><span class="neg">[Negative] Get pet - unauthorized</span></div>
+          <div class="row"><span class="method get">GET</span><span class="neg">[Negative] Get pet - missing id</span></div>
         </div>
       </div>
       <div>
