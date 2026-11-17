@@ -236,7 +236,7 @@
       <a href="#ci">In CI</a>
       <a href="#quickstart">Quick start</a>
     </nav>
-    <div class="meta-tags"><span>REV v<span data-npm-version>0.10.0</span></span><span>NODE ≥22</span><span>MIT</span></div>
+    <div class="meta-tags"><span>REV v<span data-npm-version>0.11.1</span></span><span>NODE ≥22</span><span>MIT</span></div>
   </div>
 </div>
 
@@ -370,6 +370,7 @@ pm.test(<span class="s">"Response matches the schema…"</span>, …)</pre></div
     <dl class="spec-table">
       <div class="spec-row"><dt>Spec formats</dt><dd>Swagger 2.0 and OpenAPI 3.x, from a local file or a URL</dd></div>
       <div class="spec-row"><dt>Bodies</dt><dd>JSON, form-urlencoded, multipart uploads, text, and binary responses</dd></div>
+      <div class="spec-row"><dt>Body examples</dt><dd>A request body is sent with its first named example; <code class="mono">--examples</code> adds a request for every other one, with the same checks</dd></div>
       <div class="spec-row"><dt>Parameters</dt><dd>Path, query, header, cookie, array, and deep-object styles</dd></div>
       <div class="spec-row"><dt>Auth</dt><dd>Bearer, Basic, API keys, and combined security requirements; <code class="mono">--oauth-token</code> starts the run by fetching an OAuth2 client credentials token</dd></div>
       <div class="spec-row"><dt>Assertions</dt><dd>Status-specific JSON Schema checks, media-type-aware response handling, and the response headers the spec declares (required headers present, sent headers match their schema) — on by default</dd></div>
@@ -402,7 +403,7 @@ pm.test(<span class="s">"Response matches the schema…"</span>, …)</pre></div
     <div class="section-head"><span class="num">04</span><h2>The same run in a pull request.</h2></div>
     <p class="ai-note">The GitHub Action generates the collection, writes the coverage to the job summary, runs the tests with Newman and fails the job when a test fails. After the run, the summary also shows what the run covered, and the <code class="mono">run-coverage</code> output hands that report to later steps. <code class="mono">diff</code> guards the spec itself: it fails the step when the new version breaks clients of the old one.</p>
     <div class="qs-grid" style="margin-top:1.1rem">
-      <div class="console"><div class="console-body"><pre>- uses: vannt-dev/openapi-postman-test-generator@v<span data-npm-version>0.10.0</span>
+      <div class="console"><div class="console-body"><pre>- uses: vannt-dev/openapi-postman-test-generator@v<span data-npm-version>0.11.1</span>
   with:
     spec: openapi.yaml
     base-url: http://localhost:3000   <span class="out"># optional</span>
@@ -452,7 +453,7 @@ pm.test(<span class="s">"Response matches the schema…"</span>, …)</pre></div
         <a href="https://github.com/vannt-dev/openapi-postman-test-generator/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
       </div>
     </div>
-    <div class="foot-tags" style="margin-top:1.4rem;"><span>REV v<span data-npm-version>0.10.0</span></span><span>NODE ≥22</span><span>© vannt-dev</span></div>
+    <div class="foot-tags" style="margin-top:1.4rem;"><span>REV v<span data-npm-version>0.11.1</span></span><span>NODE ≥22</span><span>© vannt-dev</span></div>
   </footer>
 </div>
 
