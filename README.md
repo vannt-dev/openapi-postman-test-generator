@@ -22,6 +22,7 @@ The core generator is deterministic. An optional AI planner uses structured mode
 
 - Swagger 2.0 and OpenAPI 3.x files or URLs
 - JSON, form-urlencoded, multipart uploads, text, and binary responses
+- Every named example of a request body as its own request (`--examples`)
 - Path, query, header, cookie, array, and deep-object parameters
 - Bearer, Basic, OAuth token placeholders, API keys, and combined security requirements
 - Status-specific JSON Schema assertions and media-type-aware response handling
@@ -402,6 +403,11 @@ node dist/index.js generate \
   --plan-out ./generated/agent-plan.json
 ```
 
+`--model <model>` overrides the provider's model (`ai.model` in the configuration, or the `AI_MODEL` or
+`OPENAI_MODEL` variable). `--ai-timeout <ms>` sets the timeout for each provider (default 120000) and
+`--ai-max-output <bytes>` the largest output a provider may return (default 1048576); in the
+configuration they are `ai.timeoutMs` and `ai.maxOutputBytes`.
+
 Every provider receives the same read-only planning prompt and must return the same schema-validated plan. Codex runs with a read-only sandbox and Claude runs in plan permission mode. The deterministic generator—not the AI provider—writes Postman scripts. Planned operation ordering, variable mappings, target substitutions, and negative scenarios are all validated and applied by the generator.
 
 ### Add any command-based provider
@@ -428,6 +434,8 @@ Commands are launched directly without a shell. Supported argument placeholders 
 ## Configuration
 
 See [`examples/openapi-postman.config.yaml`](examples/openapi-postman.config.yaml). Explicit CLI flags override config values.
+For example, `--base-url <url>` overrides `baseUrl` (and the profile's), and `--response-time <ms>`
+overrides `responseTimeMs`, the response-time assertion threshold.
 
 ```yaml
 baseUrl: https://test-api.example.com
