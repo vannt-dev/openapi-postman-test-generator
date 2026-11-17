@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.1 - 2026-11-17
+
+- Dependencies: openai 7.47.0 and js-yaml 5.5.0 are now the lowest versions accepted, so a fresh install takes the current ones. Nothing in the generated collections changes.
+- Releases are published to npm with provenance by the release tag (npm trusted publishing).
+
 ## 0.11.0 - 2026-10-28
 
 - `generate --examples` (config `requestExamples: true`) sends every named example of a request body, not only the first: each further one gets its own request, `<request> (example: <summary or name>)`, with the same checks and the item id `op:<operationId>#example-<name>`, which `coverage --run` counts for the operation. Examples with only an `externalValue` are left out. Off by default, so existing collections do not change.
