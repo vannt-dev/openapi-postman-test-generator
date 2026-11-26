@@ -46,6 +46,7 @@ The core generator is deterministic. An optional AI planner uses structured mode
 - Built-in OpenAI SDK, Codex CLI, Claude Code, and Antigravity CLI adapters
 - `diff` command that lists the changes between two versions of a spec and fails on the ones that break clients
 - The same tests as a [Bruno](https://www.usebruno.com/) collection folder or a [k6](https://k6.io/) script, with the same checks, variable capture and job polling
+- Optional [Postman Collection v3](#postman-collection-v3-output) output, the YAML folder Postman v12 keeps in Git, for the Postman CLI
 - Safe custom-command adapter and a public provider registry for future integrations
 
 ## Requirements
@@ -325,6 +326,33 @@ Things to know:
 - Secret environment values are not written out: Bruno lists them under `vars:secret`, and k6 takes them with `-e`.
 
 Also exported as `toBrunoCollection` and `toK6Script`.
+
+## Postman Collection v3 output
+
+Postman v12 keeps collections in Git as [Collection format 3.0.0](https://learning.postman.com/docs/use/use-collections/collections-schemas/): a folder of YAML files instead of one JSON file. `--format v3` writes the tests in that form. The default stays v2.1.
+
+```bash
+node dist/index.js generate --spec ./openapi.yaml --format v3 \
+  --out ./postman/collections/api --env ./generated/api.environment.json
+```
+
+`--out` is then a folder, `generated/api.collection` by default. Each request is a `<name>.request.yaml` file. The collection and each folder are described in `.resources/definition.yaml`, and an `order` field keeps the run order (setup, the operations, teardown). Names are made safe for file names the way Postman does it, so `Poll: createExport` becomes `Poll- createExport.request.yaml` and keeps its name inside the file. The folder belongs to the generator: when `--out` already holds a v3 collection, every request and definition file in it is removed before the new ones are written, so a renamed request does not linger. Other files stay. Point `--out` at a folder of its own, not at a collection edited by hand. If the folder is not empty and is not a v3 collection, `generate` refuses to write to it.
+
+Newman runs only v2.1, so run a v3 folder with the [Postman CLI](https://learning.postman.com/docs/postman-cli/postman-cli-collections/) (`--run` is refused with `--format v3`):
+
+```bash
+postman collection run ./postman/collections/api \
+  --environment ./generated/api.environment.json --env-var bearerAuth_token=...
+```
+
+Things to know:
+
+- The requests, headers, query parameters, bodies, credentials and test scripts are the same as in the v2.1 file, written in the shapes of the [published v3.0.0 schema](https://schema.postman.com/collection/json/v3.0.0/draft-07/collection.json). The tests check the output against that schema.
+- The schema describes the collection as one document. How it is split into files, and the `order` field, come from Postman's documentation and from the files `postman collection migrate` writes.
+- With `--format v3` the environment marks no value as `secret`. In a v3 run the Postman CLI (1.94) leaves a value marked `secret` as `{{name}}`, even when it is given with `--env-var`.
+- Bruno, k6 and `--coverage` output work as with v2.1. `coverage --run` reads a Newman report, so it needs a v2.1 run.
+
+Also exported as `toPostmanV3Collection` (one schema-shaped document), `toPostmanV3Files` and `toPostmanV3Environment`.
 
 ## Compare two versions of a spec
 
