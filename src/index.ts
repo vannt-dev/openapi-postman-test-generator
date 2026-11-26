@@ -7,6 +7,7 @@ import { loadProjectConfig } from './config';
 import { diffSpecs, formatSpecDiff } from './diff';
 import { toBrunoCollection } from './exporters/bruno';
 import { toK6Script } from './exporters/k6';
+import { toPostmanV3Environment, toPostmanV3Files } from './exporters/postman-v3';
 import { OpenApiPostmanGenerator } from './generator';
 import { formatRunCoverage, formatRunCoverageMarkdown, runCoverage } from './run-coverage';
 import { runCollection } from './runner';
@@ -16,7 +17,7 @@ type Flags = Record<string, string | boolean | string[]>;
 
 const BOOLEAN_FLAGS = new Set(['negative', 'examples', 'safe', 'ai', 'run', 'bail', 'help', 'allow-breaking', 'oauth-token']);
 const REPEATABLE_FLAGS = new Set(['env-var', 'tag', 'exclude-tag']);
-const GENERATE_FLAGS = new Set(['tag', 'exclude-tag', 'coverage', 'oauth-token', 'spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'examples', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var', 'bruno', 'k6']);
+const GENERATE_FLAGS = new Set(['tag', 'exclude-tag', 'coverage', 'oauth-token', 'spec', 'out', 'env', 'config', 'profile', 'base-url', 'response-time', 'negative', 'examples', 'safe', 'ai', 'ai-provider', 'ai-fallback', 'ai-timeout', 'ai-max-output', 'model', 'plan-out', 'run', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var', 'bruno', 'k6', 'format']);
 const CONVERT_FLAGS = new Set(['collection', 'environment', 'bruno', 'k6']);
 const DIFF_FLAGS = new Set(['old', 'new', 'format', 'allow-breaking']);
 const RUN_FLAGS = new Set(['collection', 'environment', 'report-dir', 'iteration-data', 'run-timeout', 'bail', 'env-var']);
@@ -33,7 +34,10 @@ Usage:
   openapi-postman convert --collection <file> [--environment <file>] --bruno <dir> | --k6 <file>
 
 Generate options:
-  --out <file>             Collection output (default: generated/api.collection.json)
+  --out <file>             Collection output (default: generated/api.collection.json, or the
+                           folder generated/api.collection with --format v3)
+  --format <v2.1|v3>       Postman collection format (default: v2.1). v3 writes the YAML
+                           collection folder of Postman v12, run by the Postman CLI, not Newman
   --env <file>             Environment output (default: generated/api.environment.json)
   --config <file>          YAML/JSON project configuration
   --profile <name>         Apply a named environment profile from the config
@@ -158,6 +162,9 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
   validateFlags(flags, GENERATE_FLAGS);
   const specLocation = stringFlag(flags, 'spec');
   if (!specLocation) throw new Error('--spec is required');
+  const format = stringFlag(flags, 'format') || 'v2.1';
+  if (format !== 'v2.1' && format !== 'v3') throw new Error('--format must be v2.1 or v3');
+  if (format === 'v3' && flags.run) throw new Error('--run uses Newman, which runs only v2.1 collections; run a v3 folder with the Postman CLI: postman collection run <folder>');
   if (flags['env-var'] !== undefined && !flags.run) throw new Error('--env-var requires --run when generating');
   envVarsFlag(flags);
   const config = loadProjectConfig(stringFlag(flags, 'config'));
@@ -205,14 +212,19 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
   const generator = new OpenApiPostmanGenerator(spec, merged);
   const collection = generator.generate();
   const environment = generator.generateEnvironment(profile?.environmentName);
-  const collectionPath = path.resolve(stringFlag(flags, 'out') || 'generated/api.collection.json');
+  const collectionPath = path.resolve(stringFlag(flags, 'out') || (format === 'v3' ? 'generated/api.collection' : 'generated/api.collection.json'));
   const environmentPath = path.resolve(stringFlag(flags, 'env') || 'generated/api.environment.json');
-  fs.mkdirSync(path.dirname(collectionPath), { recursive: true });
   fs.mkdirSync(path.dirname(environmentPath), { recursive: true });
-  fs.writeFileSync(collectionPath, `${JSON.stringify(collection, null, 2)}\n`, 'utf8');
-  fs.writeFileSync(environmentPath, `${JSON.stringify(environment, null, 2)}\n`, 'utf8');
+  let collectionNote = '';
+  if (format === 'v3') collectionNote = ` (Postman Collection v3, ${writePostmanV3(collectionPath, collection)} files)`;
+  else {
+    fs.mkdirSync(path.dirname(collectionPath), { recursive: true });
+    fs.writeFileSync(collectionPath, `${JSON.stringify(collection, null, 2)}\n`, 'utf8');
+  }
+  const environmentOutput = format === 'v3' ? toPostmanV3Environment(environment) : environment;
+  fs.writeFileSync(environmentPath, `${JSON.stringify(environmentOutput, null, 2)}\n`, 'utf8');
   console.log(`Generated ${countRequests(collection.item)} requests`);
-  console.log(`Collection:   ${collectionPath}`);
+  console.log(`Collection:   ${collectionPath}${collectionNote}`);
   console.log(`Environment:  ${environmentPath}`);
   const coverage = generator.getCoverage();
   for (const line of coverageLines(coverage, Boolean(merged.includeNegative))) console.log(line);
@@ -226,6 +238,42 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
   writeOtherFormats(flags, collection, environment);
   for (const warning of [...(agentPlan?.warnings || []), ...generator.getWarnings()]) console.warn(`Warning: ${warning}`);
   return { collection: collectionPath, environment: environmentPath };
+}
+
+/** The files a v3 collection consists of; a request that was renamed must not be left to run. */
+function isPostmanV3File(name: string): boolean {
+  return /\.request\.ya?ml$/i.test(name) || name === 'definition.yaml';
+}
+
+/** Removes what an earlier run wrote, then every folder left empty; other files stay. */
+function clearPostmanV3(directory: string): void {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const target = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      clearPostmanV3(target);
+      if (!fs.readdirSync(target).length) fs.rmdirSync(target);
+    } else if (isPostmanV3File(entry.name)) fs.rmSync(target);
+  }
+}
+
+/** Writes the collection as a v3 folder and returns how many files it holds. */
+function writePostmanV3(directory: string, collection: PostmanCollection): number {
+  if (fs.existsSync(directory)) {
+    if (!fs.statSync(directory).isDirectory()) throw new Error(`--format v3 writes a folder, and ${directory} is a file`);
+    if (fs.readdirSync(directory).length) {
+      if (!fs.existsSync(path.join(directory, '.resources', 'definition.yaml'))) {
+        throw new Error(`${directory} is not empty and is not a Postman v3 collection folder; give --out a new or empty folder`);
+      }
+      clearPostmanV3(directory);
+    }
+  }
+  const files = toPostmanV3Files(collection);
+  for (const file of files) {
+    const target = path.join(directory, file.path);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, file.content, 'utf8');
+  }
+  return files.length;
 }
 
 /** Writes the Bruno folder and the k6 script when their flags are given. */

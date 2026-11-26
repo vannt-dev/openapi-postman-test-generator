@@ -6,6 +6,8 @@ export { toBrunoCollection } from './exporters/bruno';
 export type { BrunoFile } from './exporters/bruno';
 export { toK6Script } from './exporters/k6';
 export type { K6Options } from './exporters/k6';
+export { postmanV3FileName, toPostmanV3Collection, toPostmanV3Environment, toPostmanV3Files } from './exporters/postman-v3';
+export type { PostmanV3Collection, PostmanV3File, PostmanV3Item, PostmanV3Request } from './exporters/postman-v3';
 export { OpenApiPostmanGenerator, SwaggerToPostmanGenerator } from './generator';
 export { processNewmanReport, runCollection } from './runner';
 export { documentedStatus, formatRunCoverage, formatRunCoverageMarkdown, runCoverage } from './run-coverage';
