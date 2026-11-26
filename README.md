@@ -62,19 +62,19 @@ The core generator is deterministic. An optional AI planner uses structured mode
 Install the published CLI (Node.js 22 or newer):
 
 ```bash
-npm install --global openapi-postman-test-generator@0.11.1
+npm install --global openapi-postman-test-generator@0.12.0
 openapi-postman --help
 openapi-postman generate --spec ./openapi.yaml --out ./collection.json --env ./environment.json
 ```
 
-Upgrade with the same install command. Version 0.11.1 needs openai 7.47.0 and js-yaml 5.5.0 or
-newer and changes no behaviour; 0.11.0 added `--examples`, which sends every named example of a
-request body. See [release notes](CHANGELOG.md).
+Upgrade with the same install command. Version 0.12.0 adds `generate --format v3`, which writes a
+Postman Collection v3 folder for the Postman CLI; the default output is still v2.1, so existing
+collections do not change. See [release notes](CHANGELOG.md).
 
 For use as a library:
 
 ```bash
-npm install openapi-postman-test-generator@0.11.1
+npm install openapi-postman-test-generator@0.12.0
 ```
 
 ```javascript
@@ -274,7 +274,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # start the API under test here, or point base-url at a deployed one
-      - uses: vannt-dev/openapi-postman-test-generator@v0.11.1
+      - uses: vannt-dev/openapi-postman-test-generator@v0.12.0
         with:
           spec: openapi.yaml
           base-url: http://localhost:3000 # optional
