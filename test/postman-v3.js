@@ -172,6 +172,7 @@ function testFileNames() {
   assert.equal(postmanV3FileName('nul'), 'nul-');
   assert.equal(postmanV3FileName(''), 'Untitled');
   assert.equal(postmanV3FileName('x'.repeat(300)).length, 100);
+  assert.equal(postmanV3FileName(`${'x'.repeat(99)} tail`), `${'x'.repeat(99)}-`);
   const duplicates = toPostmanV3Files({ info: { name: 'D', schema: '' }, variable: [], item: [
     { name: 'dup', request: { method: 'GET', header: [], url: { raw: 'https://a.example/1', host: ['https://a.example'] } } },
     { name: 'DUP', request: { method: 'GET', header: [], url: { raw: 'https://a.example/2', host: ['https://a.example'] } } },
@@ -179,6 +180,15 @@ function testFileNames() {
   ] });
   assert.deepEqual(duplicates.map(file => file.path), ['.resources/definition.yaml', 'dup.request.yaml', 'DUP-1.request.yaml', 'dup-2.request.yaml']);
   assert.deepEqual(duplicates.slice(1).map(file => load(file.content).name), ['dup', 'DUP', 'dup']);
+}
+
+function testRawQuery() {
+  // A URL with its query only in the raw text, as a hand-written v2.1 collection may have it.
+  const [request] = toPostmanV3Collection({ info: { name: 'Q', schema: '' }, variable: [], item: [
+    { name: 'q', request: { method: 'GET', header: [], url: { raw: '{{baseUrl}}/a?x=1&flag#frag', host: ['{{baseUrl}}'], path: ['a'] } } },
+  ] }).items;
+  assert.equal(request.url, '{{baseUrl}}/a');
+  assert.deepEqual(request.queryParams, [{ key: 'x', value: '1' }, { key: 'flag', value: '' }]);
 }
 
 function testEnvironment() {
@@ -208,6 +218,7 @@ function testCli() {
     // A second run replaces what the first wrote: a request renamed since then must not stay to run.
     fs.writeFileSync(path.join(out, 'Orders', 'Old name.request.yaml'), '$kind: http-request\nname: Old\n');
     fs.writeFileSync(path.join(out, 'notes.txt'), 'kept');
+    fs.writeFileSync(path.join(out, 'Orders', 'definition.yaml'), 'not a definition');
     fs.mkdirSync(path.join(out, 'Gone', '.resources'), { recursive: true });
     fs.writeFileSync(path.join(out, 'Gone', '.resources', 'definition.yaml'), '$kind: collection\nname: Gone\n');
     result = run('--format', 'v3', '--out', out, '--env', env);
@@ -215,6 +226,7 @@ function testCli() {
     assert.ok(!fs.existsSync(path.join(out, 'Orders', 'Old name.request.yaml')));
     assert.ok(!fs.existsSync(path.join(out, 'Gone')));
     assert.equal(fs.readFileSync(path.join(out, 'notes.txt'), 'utf8'), 'kept');
+    assert.equal(fs.readFileSync(path.join(out, 'Orders', 'definition.yaml'), 'utf8'), 'not a definition');
     assert.ok(!fs.readdirSync(path.join(out, 'Orders')).some(file => file.includes('[Negative]')));
 
     // The default stays the v2.1 JSON file.
@@ -247,6 +259,7 @@ function testCli() {
 testDocument();
 testFiles();
 testFileNames();
+testRawQuery();
 testEnvironment();
 testCli();
 console.log('Postman Collection v3 tests passed');

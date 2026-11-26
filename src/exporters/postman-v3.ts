@@ -1,5 +1,5 @@
 import { dump } from 'js-yaml';
-import { PostmanAuth, PostmanBody, PostmanCollection, PostmanEnvironment, PostmanEvent, PostmanItem } from '../types';
+import { PostmanAuth, PostmanBody, PostmanCollection, PostmanEnvironment, PostmanEvent, PostmanItem, PostmanUrl } from '../types';
 
 /**
  * Postman Collection format v3.0.0: the YAML collection Postman v12 keeps in Git and the
@@ -88,26 +88,32 @@ function scripts(events: PostmanEvent[] | undefined): PostmanV3Script[] | undefi
 }
 
 /** The query is sent from `queryParams`, so the URL keeps only what comes before it. */
-function location(raw: string): string {
-  const withoutFragment = raw.split('#')[0];
+function splitUrl(url: PostmanUrl): { location: string; query?: PostmanV3KeyValue[] } {
+  const withoutFragment = url.raw.split('#')[0];
   const queryIndex = withoutFragment.indexOf('?');
-  return queryIndex < 0 ? withoutFragment : withoutFragment.slice(0, queryIndex);
+  if (queryIndex < 0) return { location: withoutFragment, query: keyValues(url.query) };
+  // The query list is what Postman sends; the raw text counts only when there is no list.
+  const query = url.query ? keyValues(url.query) : keyValues(withoutFragment.slice(queryIndex + 1).split('&').filter(Boolean).map(pair => {
+    const separator = pair.indexOf('=');
+    return separator < 0 ? { key: pair, value: '' } : { key: pair.slice(0, separator), value: pair.slice(separator + 1) };
+  }));
+  return { location: withoutFragment.slice(0, queryIndex), query };
 }
 
 function item(source: PostmanItem): PostmanV3Item {
   if (!source.request) return { $kind: 'collection', name: source.name, items: (source.item || []).map(item) };
   const request = source.request;
+  const { location, query } = splitUrl(request.url);
   const result: PostmanV3Request = {
     $kind: 'http-request',
     ...(source.id ? { id: source.id } : {}),
     name: source.name,
     ...(request.description ? { description: request.description } : {}),
-    url: location(request.url.raw),
+    url: location,
     method: request.method,
   };
   const headers = keyValues(request.header);
   if (headers) result.headers = headers;
-  const query = keyValues(request.url.query);
   if (query) result.queryParams = query;
   const requestBody = body(request.body);
   if (requestBody) result.body = requestBody;
@@ -142,8 +148,8 @@ export function postmanV3FileName(name: string): string {
     // eslint-disable-next-line no-control-regex
     .replace(/[/\\:*?"<>|\u0000-\u001f]/g, '-')
     // a leading dot would hide the file or clash with `.resources`, a trailing one is dropped by Windows
-    .replace(/^[.\s]+|[.\s]+$/g, match => '-'.repeat(match.length))
-    .slice(0, 100);
+    .slice(0, 100)
+    .replace(/^[.\s]+|[.\s]+$/g, match => '-'.repeat(match.length));
   if (!safe) safe = 'Untitled';
   if (WINDOWS_DEVICE_NAMES.test(safe)) safe = `${safe}-`;
   return safe;

@@ -240,19 +240,19 @@ async function generate(flags: Flags): Promise<{ collection: string; environment
   return { collection: collectionPath, environment: environmentPath };
 }
 
-/** The files a v3 collection consists of; a request that was renamed must not be left to run. */
-function isPostmanV3File(name: string): boolean {
-  return /\.request\.ya?ml$/i.test(name) || name === 'definition.yaml';
+/** The request and definition files of a v3 collection; a renamed request must not be left to run. */
+function isPostmanV3File(directory: string, name: string): boolean {
+  return /\.request\.ya?ml$/i.test(name) || (name === 'definition.yaml' && path.basename(directory) === '.resources');
 }
 
-/** Removes what an earlier run wrote, then every folder left empty; other files stay. */
+/** Removes the requests and definitions of the collection, then every folder left empty; other files stay. */
 function clearPostmanV3(directory: string): void {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const target = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       clearPostmanV3(target);
       if (!fs.readdirSync(target).length) fs.rmdirSync(target);
-    } else if (isPostmanV3File(entry.name)) fs.rmSync(target);
+    } else if (isPostmanV3File(directory, entry.name)) fs.rmSync(target);
   }
 }
 
