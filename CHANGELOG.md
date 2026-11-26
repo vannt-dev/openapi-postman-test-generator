@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.0 - 2026-11-26
+
+- `generate --format v3` writes the collection as a Postman Collection v3 folder (the YAML files of Postman v12: `.resources/definition.yaml` and one `<name>.request.yaml` per request, in order), checked against the published v3.0.0 schema. Run it with the Postman CLI (`postman collection run <folder>`); Newman runs only v2.1, so `--run` with `--format v3` is refused. `--out` is then a folder (default `generated/api.collection`); writing again into a v3 folder replaces its request and definition files. The default output is still v2.1.
+
 ## 0.11.1 - 2026-11-17
 
 - Dependencies: openai 7.47.0 and js-yaml 5.5.0 are now the lowest versions accepted, so a fresh install takes the current ones. Nothing in the generated collections changes.
